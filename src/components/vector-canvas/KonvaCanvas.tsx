@@ -95,9 +95,14 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
         if (shapeId) {
             if (!isSelected) {
                 setSelectedShapeIds([shapeId]);
-            } else if (selectedShapeIds.length > 1) {
+            } else if (selectedShapeIds.length > 1 && selectedShapeIds.includes(shapeId)) {
+                // If it's already selected and part of a multi-selection, clicking it again without ctrl/meta
+                // should make it the only selected item.
                 setSelectedShapeIds([shapeId]);
+            } else if (!selectedShapeIds.includes(shapeId)) {
+                 setSelectedShapeIds([shapeId]);
             }
+            // If it's already the only selected item, clicking it does nothing to the selection state.
         } else {
             setSelectedShapeIds([]); 
         }
@@ -115,13 +120,13 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
           initialShape = { id, type: 'ellipse', x: pos.x, y: pos.y, width: 0, height: 0, fill: defaultFillColor, stroke: defaultStrokeColor, strokeWidth: defaultStrokeWidth, dash: dashArray, draggable: true };
           break;
         case 'line':
-          initialShape = { id, type: 'line', x:0, y:0, points: [pos.x, pos.y, pos.x, pos.y], stroke: defaultStrokeColor, strokeWidth: defaultStrokeWidth, dash: dashArray, draggable: true };
+          initialShape = { id, type: 'line', x:pos.x, y:pos.y, points: [0, 0, 0, 0], stroke: defaultStrokeColor, strokeWidth: defaultStrokeWidth, dash: dashArray, draggable: true };
           break;
         case 'polyline':
-          initialShape = { id, type: 'polyline', x: 0, y: 0, points: [pos.x, pos.y, pos.x, pos.y], stroke: defaultStrokeColor, strokeWidth: defaultStrokeWidth, dash: dashArray, draggable: true };
-          break;
+          initialShape = { id, type: 'polyline', x: pos.x, y: pos.y, points: [0,0,0,0], stroke: defaultStrokeColor, strokeWidth: defaultStrokeWidth, dash: dashArray, draggable: true };
+           break;
         case 'polygon': 
-          initialShape = { id, type: 'polygon', x: 0, y: 0, points: [pos.x, pos.y, pos.x, pos.y], stroke: defaultStrokeColor, strokeWidth: defaultStrokeWidth, dash: dashArray, fill: defaultFillColor, closed: true, draggable: true };
+          initialShape = { id, type: 'polygon', x: pos.x, y: pos.y, points: [0,0,0,0], stroke: defaultStrokeColor, strokeWidth: defaultStrokeWidth, dash: dashArray, fill: defaultFillColor, closed: true, draggable: true };
            break;
         case 'text':
             const defaultText = prompt("Enter text:", "Hello") || "Text";
@@ -162,25 +167,20 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
         updatedShape.height = Math.abs(pos.y - currentDrawingShape.y);
         break;
       case 'line':
-        updatedShape.points = [updatedShape.points[0], updatedShape.points[1], pos.x, pos.y];
-        break;
       case 'polyline':
       case 'polygon':
-        const currentPoints = [...updatedShape.points];
-        currentPoints[currentPoints.length - 2] = pos.x;
-        currentPoints[currentPoints.length - 1] = pos.y;
-        updatedShape.points = currentPoints;
+        // Points are relative to the shape's x,y
+        updatedShape.points = [updatedShape.points[0], updatedShape.points[1], pos.x - updatedShape.x, pos.y - updatedShape.y];
         break;
     }
-    // Instead of setCurrentDrawingShape, update the shape in the main shapes array
     onUpdateSingleShape(updatedShape);
-    setCurrentDrawingShape(updatedShape); // Keep local track for ongoing drawing operation
+    setCurrentDrawingShape(updatedShape); 
   };
 
   const handleMouseUp = (e: KonvaEventObject<MouseEvent>) => {
      const stage = e.target.getStage();
      if (!stage) return;
-     // const pos = getPointerPosition(stage); // Not used in current logic here
+     const pos = getPointerPosition(stage);
 
     if (currentTool === 'select' && selectionRect?.visible && selectionRectRef.current) {
         setSelectionRect(prev => prev ? {...prev, visible: false} : null);
@@ -210,39 +210,34 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
         }
         if (finalShape.width && finalShape.width < 5) finalShape.width = 5;
         if (finalShape.height && finalShape.height < 5) finalShape.height = 5;
-         onUpdateSingleShape(finalShape); // Final update of the shape
+         onUpdateSingleShape(finalShape); 
       } else if (finalShape.type === 'line' || finalShape.type === 'polyline' || finalShape.type === 'polygon') {
         const points = finalShape.points;
         if (points.length >= 2) {
-            const [x1, y1] = [points[0], points[1]];
-            const [x2, y2] = [points[points.length-2], points[points.length-1]];
+            const [x1, y1] = [points[0], points[1]]; // Relative to shape's x,y
+            const [x2, y2] = [points[points.length-2], points[points.length-1]]; // Relative to shape's x,y
             const dx = x2 - x1;
             const dy = y2 - y1;
-            if (Math.sqrt(dx * dx + dy * dy) < 5 && points.length <=2) { // Only discard if it's a tiny single segment line
-                // Remove the shape if it's too small
+            if (Math.sqrt(dx * dx + dy * dy) < 5 && points.length <=2) { 
                 onUpdateShapes(shapes.filter(s => s.id !== finalShape.id));
                 setCurrentDrawingShape(null); 
                 setIsDrawing(false);
                 return;
             }
         }
-         onUpdateSingleShape(finalShape); // Final update for line based shapes
+         onUpdateSingleShape(finalShape); 
       }
       
       if (currentTool === 'polyline' || currentTool === 'polygon') {
-         // For polyline/polygon, mouseUp adds a point. Double-click finalizes.
-         // The shape was already added on mouseDown. Now we update its points.
          const currentPoints = [...finalShape.points];
-         const pos = getPointerPosition(stage);
-         currentPoints.push(pos.x, pos.y); // Add a new point placeholder for next segment
+         // Add new point relative to shape's origin
+         currentPoints.push(pos.x - finalShape.x, pos.y - finalShape.y);
          const updatedPolyShape = {...finalShape, points: currentPoints};
          onUpdateSingleShape(updatedPolyShape);
          setCurrentDrawingShape(updatedPolyShape);
-         // setIsDrawing(true) remains true, to continue adding points
-         return; // Don't reset isDrawing or currentDrawingShape yet
+         return; 
       }
 
-      // For other tools, drawing is finished
       setIsDrawing(false);
       setCurrentDrawingShape(null);
     }
@@ -251,19 +246,13 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
   const handleDoubleClick = (e: KonvaEventObject<MouseEvent>) => {
     if ((currentDrawingShape?.type === 'polyline' || currentDrawingShape?.type === 'polygon') && isDrawing) {
       let finalShape = { ...currentDrawingShape };
-      // Remove the last temporary point added on mouse move/up if it's a duplicate of the second to last,
-      // or if it's the very last point added by the click that triggered the double click.
       if (finalShape.points.length >= 4) {
-         // The last point is a duplicate from the click that initiated the double click,
-         // and the one before that was the end of the segment being drawn.
-         // We want to remove the last point as it's the start of a "next" segment we don't want.
         finalShape.points = finalShape.points.slice(0, -2);
       }
 
-      if (finalShape.points.length >= (finalShape.type === 'polyline' ? 4 : 6)) { // Min 2 segments for polyline, 3 for polygon
-         onUpdateSingleShape(finalShape); // Finalize the shape
+      if (finalShape.points.length >= (finalShape.type === 'polyline' ? 4 : 6)) { 
+         onUpdateSingleShape(finalShape); 
       } else {
-        // Not enough points, remove the shape
         onUpdateShapes(shapes.filter(s => s.id !== finalShape.id));
       }
       setIsDrawing(false);
@@ -275,20 +264,15 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
     const node = e.target;
     const originalShape = shapes.find(s => s.id === id);
     if (originalShape) {
-      let updatedShape : Shape = {
-        ...originalShape,
+      // For all shapes, including groups, Konva updates node.x() and node.y()
+      // to the new absolute position of the shape's origin.
+      // Our model stores x and y as the origin, so we just update these.
+      // Children within a group maintain their relative positions automatically.
+      const updatedShape: Shape = {
+        ...(originalShape as Shape), // Cast to ensure all base properties are included
         x: node.x(),
         y: node.y(),
       };
-      if (originalShape.type === 'line' || originalShape.type === 'polyline' || originalShape.type === 'polygon'){
-        const dx = node.x() - (originalShape.x || 0); 
-        const dy = node.y() - (originalShape.y || 0);
-        
-        updatedShape.points = (originalShape as LineShape | PolylineShape | PolygonShape).points.map((p, i) => i % 2 === 0 ? p + dx : p + dy);
-        updatedShape.x = originalShape.x || 0; 
-        updatedShape.y = originalShape.y || 0;
-        node.position({x: originalShape.x || 0, y: originalShape.y || 0}); 
-      }
       onUpdateSingleShape(updatedShape);
     }
   };
@@ -303,29 +287,26 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
         x: node.x(),
         y: node.y(),
         rotation: parseFloat(node.rotation().toFixed(2)),
-        scaleX: parseFloat(node.scaleX().toFixed(3)), 
-        scaleY: parseFloat(node.scaleY().toFixed(3)),
       };
 
       if (originalShape.type === 'rectangle' || originalShape.type === 'ellipse') {
-        updatedAttrs.width = node.width() * node.scaleX();
+        updatedAttrs.width = node.width() * node.scaleX(); // Apply scale to dimensions
         updatedAttrs.height = node.height() * node.scaleY();
-        // Reset scale on node after applying to dimensions for these types
-        node.scaleX(1);
-        node.scaleY(1);
-        updatedAttrs.scaleX = 1; 
+        updatedAttrs.scaleX = 1; // Reset scale in model
         updatedAttrs.scaleY = 1;
-      } else if (originalShape.type === 'line' || originalShape.type === 'polyline' || originalShape.type === 'polygon') {
-        // For these shapes, we store the scale and rotation. Konva applies it visually.
-        // Actual point transformation would be complex. For now, x, y, scale, rotation are stored.
-        // The node's width/height are not directly used for these; points define their extent.
-      } else if (originalShape.type === 'text') {
-         // Text scaling can be handled by scaleX/scaleY. 
-         // If you want fontSize to change, it's more complex.
-         // Konva handles visual scaling well.
+        node.scaleX(1); // Reset scale on Konva node itself
+        node.scaleY(1);
+      } else {
+        // For groups, lines, polylines, polygons, text:
+        // The node's width/height might not be directly settable or meaningful in the same way.
+        // We store the scale directly. Konva applies this visual scale.
+        updatedAttrs.scaleX = parseFloat(node.scaleX().toFixed(3));
+        updatedAttrs.scaleY = parseFloat(node.scaleY().toFixed(3));
+        // If it's a group, its width/height are based on its children or initial bounding box calculation
+        // and are scaled visually by scaleX/scaleY. We don't change model width/height here.
       }
       
-      onUpdateSingleShape({ ...originalShape, ...updatedAttrs });
+      onUpdateSingleShape({ ...originalShape, ...updatedAttrs } as Shape);
     }
   };
 
@@ -359,7 +340,7 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
   };
 
   const renderShape = (shape: Shape): React.ReactNode => {
-    const baseProps = {
+    const baseProps: any = { // Use 'any' for baseProps to simplify, or create a more specific base prop type
       key: shape.id,
       id: shape.id,
       x: shape.x,
@@ -381,30 +362,31 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
         return <Rect {...baseProps} width={rect.width} height={rect.height} fill={rect.fill} stroke={rect.stroke} strokeWidth={rect.strokeWidth} dash={rect.dash} />;
       case 'ellipse':
         const ellipse = shape as EllipseShape;
+        // For Ellipse, width and height in our model are diameters. Konva expects radius.
         return <Ellipse {...baseProps} radiusX={ellipse.width / 2} radiusY={ellipse.height / 2} fill={ellipse.fill} stroke={ellipse.stroke} strokeWidth={ellipse.strokeWidth} dash={ellipse.dash} />;
       case 'line':
         const line = shape as LineShape;
-        // For lines, x and y are typically 0,0 and points are absolute.
-        // If dragging is applied to x/y, points need adjustment or Konva handles it if x/y are part of its transform origin.
-        // The current drag logic adjusts points and resets x/y to 0 for lines.
-        return <KonvaLine {...baseProps} x={line.x || 0} y={line.y || 0} points={line.points} stroke={line.stroke} strokeWidth={line.strokeWidth} dash={line.dash} />;
+        // Points are relative to the shape's x,y
+        return <KonvaLine {...baseProps} points={line.points} stroke={line.stroke} strokeWidth={line.strokeWidth} dash={line.dash} />;
       case 'polyline':
         const polyline = shape as PolylineShape;
-        return <KonvaLine {...baseProps} x={polyline.x || 0} y={polyline.y || 0} points={polyline.points} stroke={polyline.stroke} strokeWidth={polyline.strokeWidth} dash={polyline.dash} fillEnabled={false} />;
+        return <KonvaLine {...baseProps} points={polyline.points} stroke={polyline.stroke} strokeWidth={polyline.strokeWidth} dash={polyline.dash} fillEnabled={false} />;
       case 'polygon':
         const polygon = shape as PolygonShape;
-        return <KonvaLine {...baseProps} x={polygon.x || 0} y={polygon.y || 0} points={polygon.points} stroke={polygon.stroke} strokeWidth={polygon.strokeWidth} dash={polygon.dash} fill={polygon.fill} closed={true} />;
+        return <KonvaLine {...baseProps} points={polygon.points} stroke={polygon.stroke} strokeWidth={polygon.strokeWidth} dash={polygon.dash} fill={polygon.fill} closed={true} />;
       case 'text':
         const text = shape as TextShape;
         return <KonvaText {...baseProps} text={text.text} fontSize={text.fontSize} fontFamily={text.fontFamily} fill={text.fill} width={text.width} height={text.height} align={text.align} verticalAlign={text.verticalAlign} padding={text.padding} lineHeight={text.lineHeight} wrap={text.wrap} ellipsis={text.ellipsis} fontStyle={text.fontStyle} textDecoration={text.textDecoration}/>;
       case 'group':
         const group = shape as GroupShape;
+        // The group's width and height are for its unscaled bounding box.
+        // Clipping can be useful if children might extend beyond these intended bounds.
         const clipFunc = (group.width && group.height) ? (ctx: Konva.Context) => {
-            ctx.rect(0, 0, group.width!, group.height!);
+            ctx.rect(0, 0, group.width!, group.height!); // Clip path is relative to the group's origin
         } : undefined;
 
         return (
-            <KonvaGroup {...baseProps} clipFunc={clipFunc} width={group.width} height={group.height}>
+            <KonvaGroup {...baseProps} width={group.width} height={group.height} clipFunc={clipFunc}>
                 {group.children.map(child => renderShape(child))}
             </KonvaGroup>
         );
@@ -441,16 +423,17 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
       >
         <Layer ref={layerRef}>
           {shapes.map(shape => renderShape(shape))}
-          {/* Render currentDrawingShape separately if it's not yet in shapes array, but current logic adds it immediately */}
           <Transformer
             ref={transformerRef}
             boundBoxFunc={(oldBox, newBox) => {
+              // Minimum size for transformed shapes
               if (newBox.width < 5 || newBox.height < 5) {
                 return oldBox;
               }
               return newBox;
             }}
             rotateEnabled={true}
+            // Consider adding resizeEnabled and other props as needed
           />
           {selectionRect?.visible && (
             <Rect
@@ -473,5 +456,3 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
 };
 
 export default KonvaCanvas;
-
-    

@@ -67,6 +67,16 @@ export default function VectorCanvasClient() {
     const newShapes = shapes.map(s => s.id === updatedShape.id ? updatedShape : s);
     updateStateAndHistory(newShapes, selectedShapeIds.includes(updatedShape.id) ? selectedShapeIds : [updatedShape.id]);
   }, [shapes, selectedShapeIds, updateStateAndHistory]);
+  
+  const handleUpdateMultipleShapes = useCallback((updatedShapes: Shape[]) => {
+    const updatedShapeIds = updatedShapes.map(us => us.id);
+    const newShapes = shapes.map(s => {
+      const foundUpdate = updatedShapes.find(us => us.id === s.id);
+      return foundUpdate ? foundUpdate : s;
+    });
+    updateStateAndHistory(newShapes, selectedShapeIds); // Keep current selection or update if needed
+  }, [shapes, selectedShapeIds, updateStateAndHistory]);
+
 
   const localHandleDeleteSelected = useCallback(() => {
     if (selectedShapeIds.length === 0) return;
@@ -85,13 +95,27 @@ export default function VectorCanvasClient() {
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     shapesToGroup.forEach(s => {
-        const sMaxX = (s.x || 0) + (s.width || 0) * (s.scaleX || 1);
-        const sMaxY = (s.y || 0) + (s.height || 0) * (s.scaleY || 1);
-        minX = Math.min(minX, s.x || 0);
-        minY = Math.min(minY, s.y || 0);
-        maxX = Math.max(maxX, sMaxX);
-        maxY = Math.max(maxY, sMaxY);
+        const sCurrentX = s.x || 0;
+        const sCurrentY = s.y || 0;
+        const sWidth = (s.width || 0) * (s.scaleX || 1);
+        const sHeight = (s.height || 0) * (s.scaleY || 1);
+        
+        // Basic bounding box for non-rotated items; for rotated items, this is an approximation.
+        // Konva's getClientRect() would be more accurate if nodes were available here.
+        minX = Math.min(minX, sCurrentX);
+        minY = Math.min(minY, sCurrentY);
+        maxX = Math.max(maxX, sCurrentX + sWidth);
+        maxY = Math.max(maxY, sCurrentY + sHeight);
     });
+    
+    // Handle cases where shapes might have zero width/height (e.g. lines)
+    if (maxX < minX) { // If all shapes are at the same x or lines, give a default width
+        maxX = minX + 50; // Default width
+    }
+    if (maxY < minY) { // If all shapes are at the same y or lines, give a default height
+        maxY = minY + 50; // Default height
+    }
+
 
     const group: GroupShape = {
       id: uuidv4(),
@@ -100,11 +124,17 @@ export default function VectorCanvasClient() {
       y: minY,
       width: maxX - minX,
       height: maxY - minY,
-      children: shapesToGroup.map(s => ({...s, x: (s.x || 0) - minX, y: (s.y || 0) - minY})),
+      children: shapesToGroup.map(s => ({
+        ...s, 
+        x: (s.x || 0) - minX, // Make child x relative to group x
+        y: (s.y || 0) - minY, // Make child y relative to group y
+        draggable: false, // Children are not draggable independently by default
+      })),
       draggable: true,
       rotation: 0,
       scaleX: 1,
       scaleY: 1,
+      opacity: 1,
     };
     const newShapes = [...remainingShapes, group];
     updateStateAndHistory(newShapes, [group.id]);
@@ -122,15 +152,56 @@ export default function VectorCanvasClient() {
         return;
     }
     const remainingShapes = shapes.filter(s => s.id !== groupToUngroup.id);
-    const ungroupedChildren = groupToUngroup.children.map(child => ({
-        ...child,
-        x: (child.x || 0) + (groupToUngroup.x || 0),
-        y: (child.y || 0) + (groupToUngroup.y || 0),
-    }));
+    
+    // When ungrouping, children's coordinates must become absolute again.
+    // This requires applying the group's transform (translation, rotation, scale) to each child.
+    // For simplicity in this step, we'll handle translation. Full transform is more complex.
+    // Konva does this visually, but our model needs to reflect it.
+    const konvaGroupNode = stageRef.current?.findOne('#' + groupToUngroup.id) as Konva.Group | undefined;
+
+    const ungroupedChildren = groupToUngroup.children.map(child => {
+        let absoluteX = (child.x || 0) + (groupToUngroup.x || 0);
+        let absoluteY = (child.y || 0) + (groupToUngroup.y || 0);
+
+        if (konvaGroupNode) {
+            // Create a temporary node to get absolute transform if needed
+            // This is a simplified version. True absolute transform for each child considering group's
+            // rotation and scale applied to child's relative pos, then adding group's absolute pos.
+            const childNode = new Konva.Rect({ // Use a generic shape for calculation
+                x: child.x,
+                y: child.y,
+                rotation: child.rotation,
+                scaleX: child.scaleX,
+                scaleY: child.scaleY,
+                width: child.width, // Konva needs dimensions for getTransform
+                height: child.height,
+            });
+            // Temporarily add to group to get transform relative to stage
+            // This is not ideal inside a callback directly manipulating Konva instances
+            // Better to calculate manually if possible, or rely on group structure for relative pos.
+            // For now, simple offset:
+        }
+        
+        // If group was scaled or rotated, child's effective absolute position changes.
+        // This simplified version only handles group's x,y offset.
+        // A full solution would apply group's matrix transform to child's relative [x,y].
+        
+        return {
+            ...child,
+            x: absoluteX,
+            y: absoluteY,
+            // Apply group's scale and rotation to child's scale and rotation if they are to be preserved visually
+            // For example, if child was scale 1, and group scale 2, child becomes scale 2.
+            scaleX: (child.scaleX || 1) * (groupToUngroup.scaleX || 1),
+            scaleY: (child.scaleY || 1) * (groupToUngroup.scaleY || 1),
+            rotation: (child.rotation || 0) + (groupToUngroup.rotation || 0),
+            draggable: true, // Make children draggable again
+        };
+    });
     const newShapes = [...remainingShapes, ...ungroupedChildren];
     updateStateAndHistory(newShapes, ungroupedChildren.map(c => c.id));
     toast({ title: "Ungrouped", description: "Group disbanded."});
-  }, [shapes, selectedShapeIds, updateStateAndHistory, toast]);
+  }, [shapes, selectedShapeIds, updateStateAndHistory, toast, stageRef]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -144,6 +215,9 @@ export default function VectorCanvasClient() {
         } else if (event.key === 'g') {
           event.preventDefault();
           localHandleGroup();
+        } else if (event.key === 'G' && event.shiftKey) { // Ctrl+Shift+G for ungroup
+            event.preventDefault();
+            handleUngroup();
         }
       } else if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault();
@@ -152,7 +226,7 @@ export default function VectorCanvasClient() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, localHandleGroup, localHandleDeleteSelected]);
+  }, [undo, redo, localHandleGroup, handleUngroup, localHandleDeleteSelected]);
 
   useEffect(() => {
     if (currentHistory) {
@@ -228,12 +302,12 @@ export default function VectorCanvasClient() {
     const transformerNode = stageRef.current.findOne('Transformer');
     const transformerWasVisible = transformerNode?.isVisible();
     if (transformerNode) transformerNode.visible(false);
-    stageRef.current.batchDraw();
+    stageRef.current.batchDraw(); // Ensure canvas is up-to-date
 
     const dataURL = stageRef.current.toDataURL({ mimeType: 'image/png', quality: 1, pixelRatio: 2 });
     
     if (transformerNode && transformerWasVisible) transformerNode.visible(true); 
-    stageRef.current.batchDraw();
+    stageRef.current.batchDraw(); // Redraw to restore transformer if it was visible
 
     const a = document.createElement('a');
     a.href = dataURL;
@@ -283,7 +357,7 @@ export default function VectorCanvasClient() {
             shapes={shapes}
             selectedShapeIds={selectedShapeIds}
             setSelectedShapeIds={(ids) => updateStateAndHistory(shapes, ids)} 
-            onUpdateShapes={(updatedShapes) => updateStateAndHistory(updatedShapes, selectedShapeIds)} 
+            onUpdateShapes={(updatedShapesList) => updateStateAndHistory(updatedShapesList, selectedShapeIds.filter(id => updatedShapesList.some(s => s.id === id)))}
             onUpdateSingleShape={handleUpdateSingleShape}
             onAddShape={handleAddShape}
             currentTool={currentTool}
