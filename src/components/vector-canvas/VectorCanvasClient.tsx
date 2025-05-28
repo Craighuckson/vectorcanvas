@@ -18,7 +18,7 @@ const DynamicKonvaCanvas = dynamic(
   { 
     ssr: false,
     loading: () => (
-      <div className="flex-1 relative bg-muted/30 border-r border-border flex items-center justify-center">
+      <div className="flex-1 relative bg-white border-r border-border flex items-center justify-center">
         <p>Loading Canvas...</p>
       </div>
     )
@@ -29,7 +29,7 @@ const initialShapes: Shape[] = [];
 const initialSelectedShapeIds: string[] = [];
 const initialTool: Tool = 'select';
 const initialDefaultFillColor = '#A3E47F'; 
-const initialDefaultStrokeColor = '#46B3AC';
+const initialDefaultStrokeColor = '#000000'; // Changed to black
 const initialDefaultStrokeWidth = 2;
 const initialCurrentLineStyle = 'solid' as const;
 
@@ -100,20 +100,17 @@ export default function VectorCanvasClient() {
         const sWidth = (s.width || 0) * (s.scaleX || 1);
         const sHeight = (s.height || 0) * (s.scaleY || 1);
         
-        // Basic bounding box for non-rotated items; for rotated items, this is an approximation.
-        // Konva's getClientRect() would be more accurate if nodes were available here.
         minX = Math.min(minX, sCurrentX);
         minY = Math.min(minY, sCurrentY);
         maxX = Math.max(maxX, sCurrentX + sWidth);
         maxY = Math.max(maxY, sCurrentY + sHeight);
     });
     
-    // Handle cases where shapes might have zero width/height (e.g. lines)
-    if (maxX < minX) { // If all shapes are at the same x or lines, give a default width
-        maxX = minX + 50; // Default width
+    if (maxX < minX) { 
+        maxX = minX + 50;
     }
-    if (maxY < minY) { // If all shapes are at the same y or lines, give a default height
-        maxY = minY + 50; // Default height
+    if (maxY < minY) { 
+        maxY = minY + 50; 
     }
 
 
@@ -126,9 +123,9 @@ export default function VectorCanvasClient() {
       height: maxY - minY,
       children: shapesToGroup.map(s => ({
         ...s, 
-        x: (s.x || 0) - minX, // Make child x relative to group x
-        y: (s.y || 0) - minY, // Make child y relative to group y
-        draggable: false, // Children are not draggable independently by default
+        x: (s.x || 0) - minX, 
+        y: (s.y || 0) - minY, 
+        draggable: false, 
       })),
       draggable: true,
       rotation: 0,
@@ -153,49 +150,20 @@ export default function VectorCanvasClient() {
     }
     const remainingShapes = shapes.filter(s => s.id !== groupToUngroup.id);
     
-    // When ungrouping, children's coordinates must become absolute again.
-    // This requires applying the group's transform (translation, rotation, scale) to each child.
-    // For simplicity in this step, we'll handle translation. Full transform is more complex.
-    // Konva does this visually, but our model needs to reflect it.
     const konvaGroupNode = stageRef.current?.findOne('#' + groupToUngroup.id) as Konva.Group | undefined;
 
     const ungroupedChildren = groupToUngroup.children.map(child => {
         let absoluteX = (child.x || 0) + (groupToUngroup.x || 0);
         let absoluteY = (child.y || 0) + (groupToUngroup.y || 0);
-
-        if (konvaGroupNode) {
-            // Create a temporary node to get absolute transform if needed
-            // This is a simplified version. True absolute transform for each child considering group's
-            // rotation and scale applied to child's relative pos, then adding group's absolute pos.
-            const childNode = new Konva.Rect({ // Use a generic shape for calculation
-                x: child.x,
-                y: child.y,
-                rotation: child.rotation,
-                scaleX: child.scaleX,
-                scaleY: child.scaleY,
-                width: child.width, // Konva needs dimensions for getTransform
-                height: child.height,
-            });
-            // Temporarily add to group to get transform relative to stage
-            // This is not ideal inside a callback directly manipulating Konva instances
-            // Better to calculate manually if possible, or rely on group structure for relative pos.
-            // For now, simple offset:
-        }
-        
-        // If group was scaled or rotated, child's effective absolute position changes.
-        // This simplified version only handles group's x,y offset.
-        // A full solution would apply group's matrix transform to child's relative [x,y].
         
         return {
             ...child,
             x: absoluteX,
             y: absoluteY,
-            // Apply group's scale and rotation to child's scale and rotation if they are to be preserved visually
-            // For example, if child was scale 1, and group scale 2, child becomes scale 2.
             scaleX: (child.scaleX || 1) * (groupToUngroup.scaleX || 1),
             scaleY: (child.scaleY || 1) * (groupToUngroup.scaleY || 1),
             rotation: (child.rotation || 0) + (groupToUngroup.rotation || 0),
-            draggable: true, // Make children draggable again
+            draggable: true, 
         };
     });
     const newShapes = [...remainingShapes, ...ungroupedChildren];
@@ -215,7 +183,7 @@ export default function VectorCanvasClient() {
         } else if (event.key === 'g') {
           event.preventDefault();
           localHandleGroup();
-        } else if (event.key === 'G' && event.shiftKey) { // Ctrl+Shift+G for ungroup
+        } else if (event.key === 'G' && event.shiftKey) { 
             event.preventDefault();
             handleUngroup();
         }
@@ -302,12 +270,12 @@ export default function VectorCanvasClient() {
     const transformerNode = stageRef.current.findOne('Transformer');
     const transformerWasVisible = transformerNode?.isVisible();
     if (transformerNode) transformerNode.visible(false);
-    stageRef.current.batchDraw(); // Ensure canvas is up-to-date
+    stageRef.current.batchDraw(); 
 
     const dataURL = stageRef.current.toDataURL({ mimeType: 'image/png', quality: 1, pixelRatio: 2 });
     
     if (transformerNode && transformerWasVisible) transformerNode.visible(true); 
-    stageRef.current.batchDraw(); // Redraw to restore transformer if it was visible
+    stageRef.current.batchDraw(); 
 
     const a = document.createElement('a');
     a.href = dataURL;
@@ -351,7 +319,7 @@ export default function VectorCanvasClient() {
         selectedShapesCount={selectedShapeIds.length}
       />
       <div className="flex flex-1 min-h-0">
-        <div className="flex-1 relative bg-muted/30 border-r border-border">
+        <div className="flex-1 relative bg-white border-r border-border"> {/* Changed bg-muted/30 to bg-white */}
           <DynamicKonvaCanvas
             stageRef={stageRef}
             shapes={shapes}
@@ -375,3 +343,4 @@ export default function VectorCanvasClient() {
     </div>
   );
 }
+
