@@ -1,6 +1,6 @@
 
 import type { NextConfig } from 'next';
-import path from 'path'; // Added for resolving paths
+import path from 'path'; // Ensure path is imported for resolving node_modules
 
 const nextConfig: NextConfig = {
   /* config options here */
@@ -21,25 +21,24 @@ const nextConfig: NextConfig = {
     ],
   },
   webpack: (config, { isServer, webpack }) => {
+    // For server-side builds, treat 'canvas' as an external module
+    // This helps prevent "Module not found: Can't resolve 'canvas'" errors,
+    // especially when using libraries like Konva that might have Node.js-specific paths.
     if (isServer) {
-      // For packages that depend on `canvas` (like Konva) but are used client-side
-      // with next/dynamic, this can prevent "Module not found: Can't resolve 'canvas'"
-      // errors during the server build.
       if (!config.externals) {
         config.externals = [];
       }
-      // Workaround for https://github.com/konvajs/konva/issues/1558
-      // Treat 'canvas' as an external module on the server.
       config.externals.push('canvas'); 
     }
 
-    // Ensure React and ReactDOM resolve to the project's versions
-    // This helps prevent issues with multiple React instances.
+    // Ensure that all modules resolve to the project's single instances of React and ReactDOM.
+    // This is critical for preventing errors like "Cannot read properties of undefined (reading 'ReactCurrentOwner')"
+    // which often arise from multiple React instances.
     if (!config.resolve) {
       config.resolve = {};
     }
     config.resolve.alias = {
-      ...(config.resolve.alias || {}), // Preserve existing aliases
+      ...(config.resolve.alias || {}), // Preserve any existing aliases
       react: path.resolve('./node_modules/react'),
       'react-dom': path.resolve('./node_modules/react-dom'),
     };
