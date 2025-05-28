@@ -29,7 +29,7 @@ const initialShapes: Shape[] = [];
 const initialSelectedShapeIds: string[] = [];
 const initialTool: Tool = 'select';
 const initialDefaultFillColor = '#A3E47F'; 
-const initialDefaultStrokeColor = '#000000'; // Changed to black
+const initialDefaultStrokeColor = '#000000';
 const initialDefaultStrokeWidth = 2;
 const initialCurrentLineStyle = 'solid' as const;
 
@@ -74,7 +74,7 @@ export default function VectorCanvasClient() {
       const foundUpdate = updatedShapes.find(us => us.id === s.id);
       return foundUpdate ? foundUpdate : s;
     });
-    updateStateAndHistory(newShapes, selectedShapeIds); // Keep current selection or update if needed
+    updateStateAndHistory(newShapes, selectedShapeIds); 
   }, [shapes, selectedShapeIds, updateStateAndHistory]);
 
 
@@ -107,12 +107,11 @@ export default function VectorCanvasClient() {
     });
     
     if (maxX < minX) { 
-        maxX = minX + 50;
+        maxX = minX + 50; 
     }
     if (maxY < minY) { 
         maxY = minY + 50; 
     }
-
 
     const group: GroupShape = {
       id: uuidv4(),
@@ -156,6 +155,14 @@ export default function VectorCanvasClient() {
         let absoluteX = (child.x || 0) + (groupToUngroup.x || 0);
         let absoluteY = (child.y || 0) + (groupToUngroup.y || 0);
         
+        if (konvaGroupNode) { // Apply group's transformation to children before ungrouping
+          const transform = konvaGroupNode.getAbsoluteTransform();
+          const childOriginalPos = { x: child.x || 0, y: child.y || 0 };
+          const transformedChildPos = transform.point(childOriginalPos);
+          absoluteX = transformedChildPos.x;
+          absoluteY = transformedChildPos.y;
+        }
+
         return {
             ...child,
             x: absoluteX,
@@ -173,6 +180,9 @@ export default function VectorCanvasClient() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const targetElement = event.target as HTMLElement;
+      const isInputFocused = targetElement.tagName === 'INPUT' || targetElement.tagName === 'TEXTAREA';
+
       if (event.ctrlKey || event.metaKey) {
         if (event.key === 'z') {
           event.preventDefault();
@@ -182,14 +192,16 @@ export default function VectorCanvasClient() {
           redo();
         } else if (event.key === 'g') {
           event.preventDefault();
-          localHandleGroup();
+          if (!isInputFocused) localHandleGroup();
         } else if (event.key === 'G' && event.shiftKey) { 
             event.preventDefault();
-            handleUngroup();
+            if (!isInputFocused) handleUngroup();
         }
       } else if (event.key === 'Delete' || event.key === 'Backspace') {
-        event.preventDefault();
-        localHandleDeleteSelected();
+        if (!isInputFocused) {
+          event.preventDefault();
+          localHandleDeleteSelected();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -268,13 +280,28 @@ export default function VectorCanvasClient() {
       return;
     }
     const transformerNode = stageRef.current.findOne('Transformer');
-    const transformerWasVisible = transformerNode?.isVisible();
+    const wasTransformerVisible = transformerNode?.isVisible();
+    
+    const tempLayer = new Konva.Layer();
+    const lineHandlesGroup = new Konva.Group({name: 'line-handles-temporary-group'});
+
+    // Temporarily hide transformer and move line handles to a temporary non-visible layer
+    // or just hide them if they are simple nodes.
+    // For simplicity here, we'll just hide the transformer if it exists.
+    // A more robust solution for line handles would be to find them by name/type and hide them.
     if (transformerNode) transformerNode.visible(false);
+    
+    // Example: If line handles are named 'line-handle'
+    stageRef.current.find('.line-handle').forEach(handle => handle.visible(false));
+
+
     stageRef.current.batchDraw(); 
 
     const dataURL = stageRef.current.toDataURL({ mimeType: 'image/png', quality: 1, pixelRatio: 2 });
     
-    if (transformerNode && transformerWasVisible) transformerNode.visible(true); 
+    if (transformerNode && wasTransformerVisible) transformerNode.visible(true); 
+    stageRef.current.find('.line-handle').forEach(handle => handle.visible(true));
+
     stageRef.current.batchDraw(); 
 
     const a = document.createElement('a');
@@ -319,7 +346,7 @@ export default function VectorCanvasClient() {
         selectedShapesCount={selectedShapeIds.length}
       />
       <div className="flex flex-1 min-h-0">
-        <div className="flex-1 relative bg-white border-r border-border"> {/* Changed bg-muted/30 to bg-white */}
+        <div className="flex-1 relative bg-white border-r border-border">
           <DynamicKonvaCanvas
             stageRef={stageRef}
             shapes={shapes}
