@@ -37,18 +37,17 @@ const nextConfig: NextConfig = {
     }
 
     // Ensure that all modules resolve to the project's single instances of React and ReactDOM.
-    // This is critical for preventing errors like "Cannot read properties of undefined (reading 'ReactCurrentOwner')"
-    // which often arise from multiple React instances.
     if (!config.resolve) {
       config.resolve = {};
     }
-    if (typeof config.resolve.alias !== 'object' || config.resolve.alias === null) {
-        config.resolve.alias = {}; // Initialize if not an object
-    }
     
-    // Directly set React and React-DOM aliases.
-    config.resolve.alias['react'] = path.resolve('./node_modules/react');
-    config.resolve.alias['react-dom'] = path.resolve('./node_modules/react-dom');
+    // Safely set/override React and React-DOM aliases
+    // This preserves any existing aliases Next.js might have set.
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}), // Spread existing aliases
+      'react': path.resolve('./node_modules/react'),
+      'react-dom': path.resolve('./node_modules/react-dom'),
+    };
     
     return config;
   },
