@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type Konva from 'konva';
 import type { Stage as KonvaStageType } from 'konva/lib/Stage';
 
-import type { Shape, Tool, HistoryEntry, GroupShape, Template } from '@/lib/types';
+import type { Shape, Tool, HistoryEntry, GroupShape, Template, TextShape } from '@/lib/types';
 import { useCanvasHistory } from '@/hooks/useCanvasHistory';
 import Toolbar from '@/components/vector-canvas/Toolbar';
 import PropertiesPanel from '@/components/vector-canvas/PropertiesPanel';
@@ -196,8 +196,15 @@ export default function VectorCanvasClient() {
         toast({ title: "Ungrouping Error", description: "Selected item is not a group.", variant: "destructive"});
         return;
     }
+
+    const stage = stageRef.current;
+    if (!stage) {
+        toast({ title: "Ungrouping Error", description: "Canvas stage not available.", variant: "destructive"});
+        return;
+    }
+
     const remainingShapes = shapes.filter(s => s.id !== groupToUngroup.id);
-    const konvaGroupNode = stageRef.current?.findOne('#' + groupToUngroup.id) as Konva.Group | undefined;
+    const konvaGroupNode = stage.findOne('#' + groupToUngroup.id) as Konva.Group | undefined;
 
     const ungroupedChildren = groupToUngroup.children.map(child => {
         let absoluteX = child.x || 0;
@@ -207,23 +214,39 @@ export default function VectorCanvasClient() {
         let newRotation = child.rotation || 0;
 
         if (konvaGroupNode) {
-            const konvaChildNode = konvaGroupNode.findOne('#'+child.id); // Find by original ID
+            const konvaChildNode = konvaGroupNode.findOne('#'+child.id);
             if (konvaChildNode) {
-                const absPos = konvaChildNode.getAbsolutePosition();
-                absoluteX = absPos.x;
-                absoluteY = absPos.y;
-                newRotation = konvaChildNode.getAbsoluteRotation();
+                const absPos = konvaChildNode.getAbsolutePosition(); // Relative to page
                 const absScale = konvaChildNode.getAbsoluteScale();
+                newRotation = konvaChildNode.getAbsoluteRotation();
+
+                // Convert absolute page position to stage-relative position
+                absoluteX = (absPos.x - stage.x()) / stage.scaleX();
+                absoluteY = (absPos.y - stage.y()) / stage.scaleY();
+                
                 newScaleX = absScale.x;
                 newScaleY = absScale.y;
-            } else { // Fallback if Konva child node not found (should ideally not happen if IDs are stable within group)
-                absoluteX += (groupToUngroup.x || 0);
-                absoluteY += (groupToUngroup.y || 0);
-                newScaleX *= (groupToUngroup.scaleX || 1);
-                newScaleY *= (groupToUngroup.scaleY || 1);
-                newRotation += (groupToUngroup.rotation || 0);
+
+            } else { 
+                console.warn(`Konva child node with id ${child.id} not found in group ${groupToUngroup.id} during ungroup. Using model fallback.`);
+                // Fallback: Apply group's transform to child's relative transform
+                // This is a simplified approach and might not be perfectly accurate for deeply nested or complex transforms.
+                const groupTransform = new Konva.Transform();
+                groupTransform.translate(groupToUngroup.x || 0, groupToUngroup.y || 0);
+                if (groupToUngroup.rotation) groupTransform.rotate((groupToUngroup.rotation * Math.PI) / 180);
+                groupTransform.scale(groupToUngroup.scaleX || 1, groupToUngroup.scaleY || 1);
+
+                const childRelativePos = { x: child.x || 0, y: child.y || 0 };
+                const transformedChildPos = groupTransform.point(childRelativePos);
+                
+                absoluteX = transformedChildPos.x;
+                absoluteY = transformedChildPos.y;
+                newScaleX = (child.scaleX || 1) * (groupToUngroup.scaleX || 1);
+                newScaleY = (child.scaleY || 1) * (groupToUngroup.scaleY || 1);
+                newRotation = (child.rotation || 0) + (groupToUngroup.rotation || 0);
             }
-        } else { // Fallback if group node itself isn't found on stage
+        } else { 
+            console.warn(`Konva group node with id ${groupToUngroup.id} not found during ungroup. Basic fallback.`);
             absoluteX += (groupToUngroup.x || 0);
             absoluteY += (groupToUngroup.y || 0);
             newScaleX *= (groupToUngroup.scaleX || 1);
@@ -231,14 +254,14 @@ export default function VectorCanvasClient() {
             newRotation += (groupToUngroup.rotation || 0);
         }
         return {
-            ...child, // Spread the original child properties
-            id: uuidv4(), // Give it a new ID as it's now a top-level shape
+            ...child,
+            id: uuidv4(), 
             x: absoluteX,
             y: absoluteY,
             scaleX: newScaleX,
             scaleY: newScaleY,
             rotation: newRotation,
-            draggable: true, // Make it draggable again
+            draggable: true, 
         };
     });
     const newShapes = [...remainingShapes, ...ungroupedChildren];
@@ -257,44 +280,61 @@ export default function VectorCanvasClient() {
       return;
     }
 
-    let shapesForStamp: Shape[];
-    // If a single group is selected, use its children for the stamp, already relative to group's 0,0
-    if (shapesToProcess.length === 1 && shapesToProcess[0].type === 'group') {
-      shapesForStamp = JSON.parse(JSON.stringify((shapesToProcess[0] as GroupShape).children));
-      // The children's x,y are already relative to the group's origin.
-      // Ensure new IDs for these template shapes if they are used directly.
-      shapesForStamp.forEach(s => s.id = uuidv4());
-    } else {
-      // Multiple shapes selected, or a single non-group shape.
-      // Normalize their positions relative to their collective bounding box top-left.
-      let minX = Infinity, minY = Infinity;
-      shapesToProcess.forEach(s => {
-          minX = Math.min(minX, s.x || 0);
-          minY = Math.min(minY, s.y || 0);
-      });
+    let shapesForTemplateModel: Shape[];
+    let minX = Infinity, minY = Infinity;
 
-      shapesForStamp = shapesToProcess.map(s => {
-          const clonedShape: Shape = JSON.parse(JSON.stringify(s)); // Deep clone
-          clonedShape.id = uuidv4(); // New ID for the shape within the template
-          clonedShape.x = (s.x || 0) - minX;
-          clonedShape.y = (s.y || 0) - minY;
-          // If the cloned shape is a group, its children also need new IDs
-          if (clonedShape.type === 'group') {
-              clonedShape.children = clonedShape.children.map((child: Shape) => ({
-                  ...child,
-                  id: uuidv4(),
-              }));
-          }
-          return clonedShape;
+    if (shapesToProcess.length === 1 && shapesToProcess[0].type === 'group') {
+      const groupShape = shapesToProcess[0] as GroupShape;
+      // Children are already relative to the group's 0,0.
+      // We deep clone them and ensure they get new IDs for the template.
+      shapesForTemplateModel = JSON.parse(JSON.stringify(groupShape.children));
+      minX = 0; // Their effective origin is 0,0 within the group context.
+      minY = 0;
+    } else {
+      // Normalize positions for multiple selected shapes or a single non-group shape
+      shapesToProcess.forEach(s => {
+        minX = Math.min(minX, s.x || 0);
+        minY = Math.min(minY, s.y || 0);
+      });
+       if (!isFinite(minX) || !isFinite(minY)) { // Handle cases like a single line at 0,0 points [0,0,10,10]
+            minX = shapesToProcess[0]?.x || 0; // Fallback to first shape's origin
+            minY = shapesToProcess[0]?.y || 0;
+       }
+
+      shapesForTemplateModel = shapesToProcess.map(s => {
+        const clonedShape: Shape = JSON.parse(JSON.stringify(s));
+        clonedShape.x = (s.x || 0) - minX;
+        clonedShape.y = (s.y || 0) - minY;
+        
+        // For text shapes, capture their rendered dimensions if not explicitly set
+        if (clonedShape.type === 'text' && (!clonedShape.width || !clonedShape.height) && stageRef.current) {
+            const konvaNode = stageRef.current.findOne('#' + s.id) as Konva.Text | undefined;
+            if (konvaNode) {
+                // Store unscaled width/height
+                (clonedShape as TextShape).width = konvaNode.width() / (s.scaleX || 1);
+                (clonedShape as TextShape).height = konvaNode.height() / (s.scaleY || 1);
+            }
+        }
+        return clonedShape;
       });
     }
 
-    const newStamp: Template = { id: uuidv4(), name: name.trim(), shapes: shapesForStamp };
+    // Ensure all shapes in the template (and their children if groups) get new unique IDs for the template
+    const assignNewIdsRecursively = (shape: Shape): Shape => {
+      const newShape = { ...shape, id: uuidv4() };
+      if (newShape.type === 'group') {
+        newShape.children = newShape.children.map(assignNewIdsRecursively);
+      }
+      return newShape;
+    };
+    shapesForTemplateModel = shapesForTemplateModel.map(assignNewIdsRecursively);
+
+    const newStamp: Template = { id: uuidv4(), name: name.trim(), shapes: shapesForTemplateModel };
     const updatedStamps = [...savedStamps, newStamp];
     setSavedStamps(updatedStamps);
     saveStampsToStorage(updatedStamps);
     toast({ title: "Stamp Saved", description: `"${name.trim()}" has been saved.` });
-  }, [shapes, selectedShapeIds, savedStamps, toast, saveStampsToStorage]);
+  }, [shapes, selectedShapeIds, savedStamps, toast, saveStampsToStorage, stageRef]);
 
   const handleDeleteStamp = useCallback((templateId: string) => {
     const updatedStamps = savedStamps.filter(stamp => stamp.id !== templateId);
@@ -308,7 +348,7 @@ export default function VectorCanvasClient() {
     const stampToLoad = savedStamps.find(stamp => stamp.id === templateId);
     if (stampToLoad) {
       setIsPlacingStamp(stampToLoad);
-      setCurrentTool('stamp'); // Set tool to stamp mode
+      setCurrentTool('stamp'); 
       toast({ title: "Stamp Loaded", description: `Click on canvas to place "${stampToLoad.name}".` });
     } else {
       toast({ title: "Error", description: "Stamp not found.", variant: "destructive" });
@@ -318,56 +358,50 @@ export default function VectorCanvasClient() {
   const placeStampOnCanvas = useCallback((clickX: number, clickY: number) => {
     if (!isPlacingStamp) return;
 
-    // Create new instances of the shapes from the template
+    // Deep clone template shapes and assign new IDs for this instance
     const shapesToPlace = isPlacingStamp.shapes.map(templateShape => {
         const newShapeInstance: Shape = JSON.parse(JSON.stringify(templateShape));
-        newShapeInstance.id = uuidv4(); // CRITICAL: Ensure every placed shape has a unique ID
-        // Template shapes are already relative to 0,0 of the stamp's bounding box
-        // newShapeInstance.x will remain as is (relative)
-        // newShapeInstance.y will remain as is (relative)
-        
-        // Ensure children of groups also get new IDs
+        newShapeInstance.id = uuidv4(); // New ID for the instance
+        // If the template shape itself was a group, its children also need new IDs
         if (newShapeInstance.type === 'group') {
             newShapeInstance.children = newShapeInstance.children.map((child: Shape) => ({
                 ...child,
-                id: uuidv4(),
+                id: uuidv4(), // New ID for children within the instanced group
             }));
         }
         return newShapeInstance;
     });
 
-    // Calculate bounding box of the template shapes to determine group width/height
+    // Calculate the bounding box of the template shapes (they are already normalized, so minX/minY should be ~0)
     let stampMinX = 0, stampMinY = 0, stampMaxX = 0, stampMaxY = 0;
     let first = true;
 
-    isPlacingStamp.shapes.forEach(s => {
-        const sX = s.x || 0;
+    isPlacingStamp.shapes.forEach(s => { // Iterate over original template shapes for consistent bbox
+        const sX = s.x || 0; 
         const sY = s.y || 0;
         let sRight = sX, sBottom = sY;
 
         if (s.type === 'line' || s.type === 'polyline' || s.type === 'polygon') {
-            let pMinX = sX, pMinY = sY, pMaxX = sX, pMaxY = sY;
-            if (s.points.length > 0) {
-                pMinX = sX + s.points[0] * (s.scaleX || 1);
-                pMaxX = sX + s.points[0] * (s.scaleX || 1);
-                pMinY = sY + s.points[1] * (s.scaleY || 1);
-                pMaxY = sY + s.points[1] * (s.scaleY || 1);
-                for (let i = 2; i < s.points.length; i += 2) {
-                    pMinX = Math.min(pMinX, sX + s.points[i] * (s.scaleX || 1));
-                    pMaxX = Math.max(pMaxX, sX + s.points[i] * (s.scaleX || 1));
-                    pMinY = Math.min(pMinY, sY + s.points[i+1] * (s.scaleY || 1));
-                    pMaxY = Math.max(pMaxY, sY + s.points[i+1] * (s.scaleY || 1));
-                }
+            let pMinX = s.points.length > 0 ? s.points[0] : 0;
+            let pMaxX = s.points.length > 0 ? s.points[0] : 0;
+            let pMinY = s.points.length > 0 ? s.points[1] : 0;
+            let pMaxY = s.points.length > 0 ? s.points[1] : 0;
+            for (let i = 0; i < s.points.length; i += 2) {
+                const ptX = s.points[i] * (s.scaleX || 1);
+                const ptY = s.points[i+1] * (s.scaleY || 1);
+                pMinX = Math.min(pMinX, ptX); pMaxX = Math.max(pMaxX, ptX);
+                pMinY = Math.min(pMinY, ptY); pMaxY = Math.max(pMaxY, ptY);
             }
-            sRight = pMaxX;
-            sBottom = pMaxY;
-        } else {
+            // Add shape's own origin (sX, sY which are relative to template's 0,0)
+            sRight = sX + pMaxX; 
+            sBottom = sY + pMaxY;
+        } else { 
             sRight = sX + (s.width || 0) * (s.scaleX || 1);
             sBottom = sY + (s.height || 0) * (s.scaleY || 1);
         }
         
         if (first) {
-            stampMinX = sX; stampMinY = sY;
+            stampMinX = sX; stampMinY = sY; // These should be close to 0 if normalized correctly
             stampMaxX = sRight; stampMaxY = sBottom;
             first = false;
         } else {
@@ -378,22 +412,21 @@ export default function VectorCanvasClient() {
         }
     });
     
-    const stampGroupWidth = Math.max(5, stampMaxX - stampMinX);
-    const stampGroupHeight = Math.max(5, stampMaxY - stampMinY);
+    const stampContentWidth = Math.max(5, stampMaxX - stampMinX);
+    const stampContentHeight = Math.max(5, stampMaxY - stampMinY);
 
-    // Create a new group for the placed stamp
     const newStampGroup: GroupShape = {
       id: uuidv4(),
       type: 'group',
-      x: clickX, // Position the group at the click
+      x: clickX, 
       y: clickY,
-      width: stampGroupWidth,
-      height: stampGroupHeight,
-      children: shapesToPlace.map(shape => ({
+      width: stampContentWidth,
+      height: stampContentHeight,
+      children: shapesToPlace.map(shape => ({ // shapesToPlace have new IDs
         ...shape, 
-        // Adjust child positions to be relative to the new group's 0,0 (which is clickX, clickY)
-        // Since template shapes x,y are already relative to stampMinX, stampMinY
-        x: (shape.x || 0) - stampMinX,
+        // Their x,y are from template, already relative to template's 0,0.
+        // Since stampMinX/stampMinY of template content *should* be 0, this is effectively shape.x and shape.y
+        x: (shape.x || 0) - stampMinX, 
         y: (shape.y || 0) - stampMinY,
         draggable: false,
       })),
@@ -407,8 +440,8 @@ export default function VectorCanvasClient() {
     const newShapesList = [...shapes, newStampGroup];
     updateStateAndHistory(newShapesList, [newStampGroup.id]);
 
-    setIsPlacingStamp(null); // Reset placing mode
-    setCurrentTool('select'); // Revert to select tool
+    setIsPlacingStamp(null); 
+    setCurrentTool('select'); 
     toast({ title: "Stamp Placed", description: `"${isPlacingStamp.name}" added to canvas.` });
 
   }, [isPlacingStamp, shapes, updateStateAndHistory, toast]);
@@ -549,22 +582,21 @@ export default function VectorCanvasClient() {
     const wasSelectionRectVisible = selectionRectNode?.isVisible();
     if (selectionRectNode) selectionRectNode.visible(false);
 
-    stageRef.current.batchDraw(); // Ensure changes are rendered before export
+    stageRef.current.batchDraw(); 
 
     const dataURL = stageRef.current.toDataURL({
         mimeType: 'image/png',
         quality: 1,
-        pixelRatio: 2, // For higher resolution PNGs
+        pixelRatio: 2, 
         width: canvasWidth,
         height: canvasHeight,
     });
 
-    // Restore visibility
     if (transformerNode && wasTransformerVisible) transformerNode.visible(true);
     handleVisibility.forEach(item => item.node.visible(item.visible));
     if (selectionRectNode && wasSelectionRectVisible) selectionRectNode.visible(true);
     
-    stageRef.current.batchDraw(); // Redraw with UI elements back
+    stageRef.current.batchDraw(); 
 
     const a = document.createElement('a');
     a.href = dataURL;
@@ -589,11 +621,11 @@ export default function VectorCanvasClient() {
         currentTool={currentTool}
         setCurrentTool={(tool) => {
             setCurrentTool(tool);
-            if (tool !== 'select' && tool !== 'stamp') { // Keep selection if switching to stamp for placement
+            if (tool !== 'select' && tool !== 'stamp') { 
                 setSelectedShapeIds([]);
             }
             if (tool !== 'stamp') {
-                setIsPlacingStamp(null); // Cancel stamp placement if switching to another tool
+                setIsPlacingStamp(null); 
             }
         }}
         defaultFillColor={defaultFillColor}
@@ -652,3 +684,5 @@ export default function VectorCanvasClient() {
     </div>
   );
 }
+
+    
