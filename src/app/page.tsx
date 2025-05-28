@@ -2,40 +2,42 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 
-export default function MinimalTestPage() {
+// Dynamically import the main client component with SSR disabled
+const DynamicVectorCanvasClient = dynamic(
+  () => import('@/components/vector-canvas/VectorCanvasClient'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden items-center justify-center">
+        <p className="text-lg animate-pulse">Loading Vector Canvas...</p>
+      </div>
+    ),
+  }
+);
+
+export default function VectorCanvasPage() {
   const [isMounted, setIsMounted] = useState(false);
-  const [count, setCount] = useState(0);
 
   useEffect(() => {
+    // This effect runs only on the client side
     setIsMounted(true);
-    console.log("MinimalTestPage mounted successfully.");
   }, []);
 
   if (!isMounted) {
+    // Render a loading state or null until the component is mounted on the client
+    // This helps avoid hydration mismatches if VectorCanvasClient has client-only logic
+    // or uses browser APIs immediately upon rendering.
+    // The "Loading Vector Canvas..." from the dynamic import might show first if it takes time to load the component itself.
+    // This "Initializing Editor..." is for the brief moment before dynamic import loading kicks in or if isMounted is false for other reasons.
     return (
       <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden items-center justify-center">
-        <p className="text-lg animate-pulse">Initializing Page...</p>
+        <p className="text-lg animate-pulse">Initializing Editor...</p>
       </div>
     );
   }
 
-  return (
-    <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden items-center justify-center p-4">
-      <h1 className="text-3xl font-bold mb-4">Minimal Test Page</h1>
-      <p className="mb-2">Current count: {count}</p>
-      <button 
-        onClick={() => setCount(c => c + 1)}
-        className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-      >
-        Increment
-      </button>
-      <p className="mt-6 text-sm text-muted-foreground">
-        If this page is stable (not reloading and the counter works), the issue is likely within the VectorCanvasClient component or its imports.
-      </p>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Please check the browser console and your terminal (Next.js server logs) for any errors, especially related to "React.cache".
-      </p>
-    </div>
-  );
+  // Once mounted, render the actual client component
+  return <DynamicVectorCanvasClient />;
 }

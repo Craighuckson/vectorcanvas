@@ -30,6 +30,13 @@ const nextConfig = {
   //   };
   //   return config;
   // },
+  devIndicators: {
+    buildActivity: true,
+    buildActivityPosition: 'bottom-right',
+  },
+  experimental: {
+    allowedDevOrigins: ["6000-firebase-studio-1748436581642.cluster-hf4yr35cmnbd4vhbxvfvc6cp5q.cloudworkstations.dev"],
+  },
 };
 
 module.exports = nextConfig;
