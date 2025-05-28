@@ -107,6 +107,6 @@ export interface HistoryEntry {
 export interface Template {
   id: string;
   name: string;
-  shapes: Shape[]; // The shapes that make up the template/stamp
-  preview?: string; // Optional: base64 encoded image for preview
+  shapes: Shape[]; // Shapes are normalized, usually relative to a 0,0 origin for the template
+  // preview?: string; // Optional: base64 encoded image for preview (future enhancement)
 }

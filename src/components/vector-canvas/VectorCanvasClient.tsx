@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type Konva from 'konva';
 import type { Stage as KonvaStageType } from 'konva/lib/Stage';
 
-import type { Shape, Tool, HistoryEntry, GroupShape } from '@/lib/types';
+import type { Shape, Tool, HistoryEntry, GroupShape, Template } from '@/lib/types';
 import { useCanvasHistory } from '@/hooks/useCanvasHistory';
 import Toolbar from '@/components/vector-canvas/Toolbar';
 import PropertiesPanel from '@/components/vector-canvas/PropertiesPanel';
@@ -25,11 +25,13 @@ const DynamicKonvaCanvas = dynamic(
   }
 );
 
+const LOCAL_STORAGE_STAMPS_KEY = 'vectorCanvasStamps';
+
 const initialShapes: Shape[] = [];
 const initialSelectedShapeIds: string[] = [];
 const initialTool: Tool = 'select';
-const initialDefaultFillColor = '#A3E47F';
-const initialDefaultStrokeColor = '#000000';
+const initialDefaultFillColor = '#A3E47F'; // Light Lime Green
+const initialDefaultStrokeColor = '#000000'; // Black
 const initialDefaultStrokeWidth = 2;
 const initialCurrentLineStyle = 'solid' as const;
 const initialCanvasWidth = 1920;
@@ -52,10 +54,37 @@ export default function VectorCanvasClient() {
   const [canvasWidth, setCanvasWidth] = useState<number>(initialCanvasWidth);
   const [canvasHeight, setCanvasHeight] = useState<number>(initialCanvasHeight);
 
+  const [savedStamps, setSavedStamps] = useState<Template[]>([]);
+  const [isPlacingStamp, setIsPlacingStamp] = useState<Template | null>(null);
+
+
   const stageRef = useRef<KonvaStageType | null>(null);
   const { toast } = useToast();
 
   const { currentHistory, setHistory, undo, redo, canUndo, canRedo, resetHistory } = useCanvasHistory(initialHistoryEntry);
+
+  // Load stamps from localStorage on initial mount
+  useEffect(() => {
+    try {
+      const storedStamps = localStorage.getItem(LOCAL_STORAGE_STAMPS_KEY);
+      if (storedStamps) {
+        setSavedStamps(JSON.parse(storedStamps));
+      }
+    } catch (error) {
+      console.error("Failed to load stamps from localStorage:", error);
+      toast({ title: "Error loading stamps", description: "Could not retrieve saved stamps.", variant: "destructive"});
+    }
+  }, [toast]);
+
+  const saveStampsToStorage = useCallback((stampsToSave: Template[]) => {
+    try {
+      localStorage.setItem(LOCAL_STORAGE_STAMPS_KEY, JSON.stringify(stampsToSave));
+    } catch (error) {
+      console.error("Failed to save stamps to localStorage:", error);
+      toast({ title: "Error saving stamps", description: "Could not persist stamps.", variant: "destructive"});
+    }
+  }, [toast]);
+
 
   const updateStateAndHistory = useCallback((newShapes: Shape[], newSelectedShapeIds: string[]) => {
     setShapes(newShapes);
@@ -70,17 +99,8 @@ export default function VectorCanvasClient() {
 
   const handleUpdateSingleShape = useCallback((updatedShape: Shape) => {
     const newShapes = shapes.map(s => s.id === updatedShape.id ? updatedShape : s);
-    // Preserve selection if the updated shape is already selected, otherwise select it.
     const newSelectedIds = selectedShapeIds.includes(updatedShape.id) ? selectedShapeIds : [updatedShape.id];
     updateStateAndHistory(newShapes, newSelectedIds);
-  }, [shapes, selectedShapeIds, updateStateAndHistory]);
-
-  const handleUpdateMultipleShapes = useCallback((updatedShapes: Shape[]) => {
-    const newShapes = shapes.map(s => {
-      const foundUpdate = updatedShapes.find(us => us.id === s.id);
-      return foundUpdate ? foundUpdate : s;
-    });
-    updateStateAndHistory(newShapes, selectedShapeIds);
   }, [shapes, selectedShapeIds, updateStateAndHistory]);
 
 
@@ -104,23 +124,22 @@ export default function VectorCanvasClient() {
     shapesToGroup.forEach(s => {
         const sCurrentX = s.x || 0;
         const sCurrentY = s.y || 0;
-
-        let sWidth = 0;
-        let sHeight = 0;
+        let sWidth = 0, sHeight = 0;
 
         if (s.type === 'line' || s.type === 'polyline' || s.type === 'polygon') {
             let sMinXpts = Infinity, sMinYpts = Infinity, sMaxXpts = -Infinity, sMaxYpts = -Infinity;
             for(let i = 0; i < s.points.length; i+=2) {
-                sMinXpts = Math.min(sMinXpts, s.points[i] * (s.scaleX || 1));
-                sMaxXpts = Math.max(sMaxXpts, s.points[i] * (s.scaleX || 1));
-                sMinYpts = Math.min(sMinYpts, s.points[i+1] * (s.scaleY || 1));
-                sMaxYpts = Math.max(sMaxYpts, s.points[i+1] * (s.scaleY || 1));
+                const pointX = s.points[i] * (s.scaleX || 1);
+                const pointY = s.points[i+1] * (s.scaleY || 1);
+                sMinXpts = Math.min(sMinXpts, pointX);
+                sMaxXpts = Math.max(sMaxXpts, pointX);
+                sMinYpts = Math.min(sMinYpts, pointY);
+                sMaxYpts = Math.max(sMaxYpts, pointY);
             }
              minX = Math.min(minX, sCurrentX + sMinXpts);
              minY = Math.min(minY, sCurrentY + sMinYpts);
              maxX = Math.max(maxX, sCurrentX + sMaxXpts);
              maxY = Math.max(maxY, sCurrentY + sMaxYpts);
-
         } else { 
             sWidth = (s.width || 0) * (s.scaleX || 1);
             sHeight = (s.height || 0) * (s.scaleY || 1);
@@ -131,41 +150,28 @@ export default function VectorCanvasClient() {
         }
     });
 
-
-    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY) || maxX <= minX || maxY <= minY) {
-        const firstShapePos = shapesToGroup[0] ? {x: shapesToGroup[0].x || 0, y: shapesToGroup[0].y || 0} : {x:0, y:0};
-        minX = firstShapePos.x;
-        minY = firstShapePos.y;
-        maxX = minX + 100; 
+    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
+        minX = shapesToGroup[0]?.x || 0;
+        minY = shapesToGroup[0]?.y || 0;
+        maxX = minX + 100; // Default size if calculation fails
         maxY = minY + 100;
     }
-
+    
+    const groupWidth = Math.max(5, maxX - minX);
+    const groupHeight = Math.max(5, maxY - minY);
 
     const group: GroupShape = {
       id: uuidv4(),
       type: 'group',
       x: minX,
       y: minY,
-      width: Math.max(5, maxX - minX),
-      height: Math.max(5, maxY - minY),
+      width: groupWidth,
+      height: groupHeight,
       children: shapesToGroup.map(s => {
-        let childX = (s.x || 0) - minX;
-        let childY = (s.y || 0) - minY;
-        
-        if ((s.type === 'line' || s.type === 'polyline' || s.type === 'polygon')) {
-            let sMinXpts = Infinity, sMinYpts = Infinity;
-            for(let i = 0; i < s.points.length; i+=2) {
-                sMinXpts = Math.min(sMinXpts, s.points[i] * (s.scaleX || 1));
-                sMinYpts = Math.min(sMinYpts, s.points[i+1] * (s.scaleY || 1));
-            }
-            childX += sMinXpts;
-            childY += sMinYpts;
-        }
-
         return {
             ...s,
-            x: childX,
-            y: childY,
+            x: (s.x || 0) - minX,
+            y: (s.y || 0) - minY,
             draggable: false, 
         };
       }),
@@ -191,7 +197,6 @@ export default function VectorCanvasClient() {
         return;
     }
     const remainingShapes = shapes.filter(s => s.id !== groupToUngroup.id);
-
     const konvaGroupNode = stageRef.current?.findOne('#' + groupToUngroup.id) as Konva.Group | undefined;
 
     const ungroupedChildren = groupToUngroup.children.map(child => {
@@ -202,7 +207,7 @@ export default function VectorCanvasClient() {
         let newRotation = child.rotation || 0;
 
         if (konvaGroupNode) {
-            const konvaChildNode = konvaGroupNode.findOne('#'+child.id);
+            const konvaChildNode = konvaGroupNode.findOne('#'+child.id); // Find by original ID
             if (konvaChildNode) {
                 const absPos = konvaChildNode.getAbsolutePosition();
                 absoluteX = absPos.x;
@@ -211,39 +216,29 @@ export default function VectorCanvasClient() {
                 const absScale = konvaChildNode.getAbsoluteScale();
                 newScaleX = absScale.x;
                 newScaleY = absScale.y;
-            } else {
-                // Fallback if Konva child node not found: apply group's transform manually
-                // This is a simplified matrix multiplication (translation, rotation, scale)
-                // For precise calculations, a full matrix decomposition would be better.
-                const groupTransform = new Konva.Transform();
-                groupTransform.translate(groupToUngroup.x || 0, groupToUngroup.y || 0);
-                groupTransform.rotate((groupToUngroup.rotation || 0) * Math.PI / 180);
-                groupTransform.scale(groupToUngroup.scaleX || 1, groupToUngroup.scaleY || 1);
-                
-                const childPos = groupTransform.point({ x: child.x || 0, y: child.y || 0 });
-                absoluteX = childPos.x;
-                absoluteY = childPos.y;
-
+            } else { // Fallback if Konva child node not found (should ideally not happen if IDs are stable within group)
+                absoluteX += (groupToUngroup.x || 0);
+                absoluteY += (groupToUngroup.y || 0);
                 newScaleX *= (groupToUngroup.scaleX || 1);
                 newScaleY *= (groupToUngroup.scaleY || 1);
                 newRotation += (groupToUngroup.rotation || 0);
             }
-        } else { 
+        } else { // Fallback if group node itself isn't found on stage
             absoluteX += (groupToUngroup.x || 0);
             absoluteY += (groupToUngroup.y || 0);
             newScaleX *= (groupToUngroup.scaleX || 1);
             newScaleY *= (groupToUngroup.scaleY || 1);
             newRotation += (groupToUngroup.rotation || 0);
         }
-
         return {
-            ...child,
+            ...child, // Spread the original child properties
+            id: uuidv4(), // Give it a new ID as it's now a top-level shape
             x: absoluteX,
             y: absoluteY,
             scaleX: newScaleX,
             scaleY: newScaleY,
             rotation: newRotation,
-            draggable: true,
+            draggable: true, // Make it draggable again
         };
     });
     const newShapes = [...remainingShapes, ...ungroupedChildren];
@@ -251,11 +246,178 @@ export default function VectorCanvasClient() {
     toast({ title: "Ungrouped", description: "Group disbanded."});
   }, [shapes, selectedShapeIds, updateStateAndHistory, toast, stageRef]);
 
+  const handleSaveStamp = useCallback((name: string) => {
+    const shapesToProcess = shapes.filter(s => selectedShapeIds.includes(s.id));
+    if (shapesToProcess.length === 0) {
+      toast({ title: "Save Stamp Failed", description: "No shapes selected.", variant: "destructive"});
+      return;
+    }
+    if (!name.trim()) {
+      toast({ title: "Save Stamp Failed", description: "Stamp name cannot be empty.", variant: "destructive"});
+      return;
+    }
+
+    let shapesForStamp: Shape[];
+    // If a single group is selected, use its children for the stamp, already relative to group's 0,0
+    if (shapesToProcess.length === 1 && shapesToProcess[0].type === 'group') {
+      shapesForStamp = JSON.parse(JSON.stringify((shapesToProcess[0] as GroupShape).children));
+      // The children's x,y are already relative to the group's origin.
+      // Ensure new IDs for these template shapes if they are used directly.
+      shapesForStamp.forEach(s => s.id = uuidv4());
+    } else {
+      // Multiple shapes selected, or a single non-group shape.
+      // Normalize their positions relative to their collective bounding box top-left.
+      let minX = Infinity, minY = Infinity;
+      shapesToProcess.forEach(s => {
+          minX = Math.min(minX, s.x || 0);
+          minY = Math.min(minY, s.y || 0);
+      });
+
+      shapesForStamp = shapesToProcess.map(s => {
+          const clonedShape: Shape = JSON.parse(JSON.stringify(s)); // Deep clone
+          clonedShape.id = uuidv4(); // New ID for the shape within the template
+          clonedShape.x = (s.x || 0) - minX;
+          clonedShape.y = (s.y || 0) - minY;
+          // If the cloned shape is a group, its children also need new IDs
+          if (clonedShape.type === 'group') {
+              clonedShape.children = clonedShape.children.map((child: Shape) => ({
+                  ...child,
+                  id: uuidv4(),
+              }));
+          }
+          return clonedShape;
+      });
+    }
+
+    const newStamp: Template = { id: uuidv4(), name: name.trim(), shapes: shapesForStamp };
+    const updatedStamps = [...savedStamps, newStamp];
+    setSavedStamps(updatedStamps);
+    saveStampsToStorage(updatedStamps);
+    toast({ title: "Stamp Saved", description: `"${name.trim()}" has been saved.` });
+  }, [shapes, selectedShapeIds, savedStamps, toast, saveStampsToStorage]);
+
+  const handleDeleteStamp = useCallback((templateId: string) => {
+    const updatedStamps = savedStamps.filter(stamp => stamp.id !== templateId);
+    setSavedStamps(updatedStamps);
+    saveStampsToStorage(updatedStamps);
+    toast({ title: "Stamp Deleted" });
+  }, [savedStamps, toast, saveStampsToStorage]);
+
+
+  const handleLoadStamp = useCallback((templateId: string) => {
+    const stampToLoad = savedStamps.find(stamp => stamp.id === templateId);
+    if (stampToLoad) {
+      setIsPlacingStamp(stampToLoad);
+      setCurrentTool('stamp'); // Set tool to stamp mode
+      toast({ title: "Stamp Loaded", description: `Click on canvas to place "${stampToLoad.name}".` });
+    } else {
+      toast({ title: "Error", description: "Stamp not found.", variant: "destructive" });
+    }
+  }, [savedStamps, toast]);
+  
+  const placeStampOnCanvas = useCallback((clickX: number, clickY: number) => {
+    if (!isPlacingStamp) return;
+
+    // Create new instances of the shapes from the template
+    const shapesToPlace = isPlacingStamp.shapes.map(templateShape => {
+        const newShapeInstance: Shape = JSON.parse(JSON.stringify(templateShape));
+        newShapeInstance.id = uuidv4(); // CRITICAL: Ensure every placed shape has a unique ID
+        // Template shapes are already relative to 0,0 of the stamp's bounding box
+        // newShapeInstance.x will remain as is (relative)
+        // newShapeInstance.y will remain as is (relative)
+        
+        // Ensure children of groups also get new IDs
+        if (newShapeInstance.type === 'group') {
+            newShapeInstance.children = newShapeInstance.children.map((child: Shape) => ({
+                ...child,
+                id: uuidv4(),
+            }));
+        }
+        return newShapeInstance;
+    });
+
+    // Calculate bounding box of the template shapes to determine group width/height
+    let stampMinX = 0, stampMinY = 0, stampMaxX = 0, stampMaxY = 0;
+    let first = true;
+
+    isPlacingStamp.shapes.forEach(s => {
+        const sX = s.x || 0;
+        const sY = s.y || 0;
+        let sRight = sX, sBottom = sY;
+
+        if (s.type === 'line' || s.type === 'polyline' || s.type === 'polygon') {
+            let pMinX = sX, pMinY = sY, pMaxX = sX, pMaxY = sY;
+            if (s.points.length > 0) {
+                pMinX = sX + s.points[0] * (s.scaleX || 1);
+                pMaxX = sX + s.points[0] * (s.scaleX || 1);
+                pMinY = sY + s.points[1] * (s.scaleY || 1);
+                pMaxY = sY + s.points[1] * (s.scaleY || 1);
+                for (let i = 2; i < s.points.length; i += 2) {
+                    pMinX = Math.min(pMinX, sX + s.points[i] * (s.scaleX || 1));
+                    pMaxX = Math.max(pMaxX, sX + s.points[i] * (s.scaleX || 1));
+                    pMinY = Math.min(pMinY, sY + s.points[i+1] * (s.scaleY || 1));
+                    pMaxY = Math.max(pMaxY, sY + s.points[i+1] * (s.scaleY || 1));
+                }
+            }
+            sRight = pMaxX;
+            sBottom = pMaxY;
+        } else {
+            sRight = sX + (s.width || 0) * (s.scaleX || 1);
+            sBottom = sY + (s.height || 0) * (s.scaleY || 1);
+        }
+        
+        if (first) {
+            stampMinX = sX; stampMinY = sY;
+            stampMaxX = sRight; stampMaxY = sBottom;
+            first = false;
+        } else {
+            stampMinX = Math.min(stampMinX, sX);
+            stampMinY = Math.min(stampMinY, sY);
+            stampMaxX = Math.max(stampMaxX, sRight);
+            stampMaxY = Math.max(stampMaxY, sBottom);
+        }
+    });
+    
+    const stampGroupWidth = Math.max(5, stampMaxX - stampMinX);
+    const stampGroupHeight = Math.max(5, stampMaxY - stampMinY);
+
+    // Create a new group for the placed stamp
+    const newStampGroup: GroupShape = {
+      id: uuidv4(),
+      type: 'group',
+      x: clickX, // Position the group at the click
+      y: clickY,
+      width: stampGroupWidth,
+      height: stampGroupHeight,
+      children: shapesToPlace.map(shape => ({
+        ...shape, 
+        // Adjust child positions to be relative to the new group's 0,0 (which is clickX, clickY)
+        // Since template shapes x,y are already relative to stampMinX, stampMinY
+        x: (shape.x || 0) - stampMinX,
+        y: (shape.y || 0) - stampMinY,
+        draggable: false,
+      })),
+      draggable: true,
+      rotation: 0,
+      scaleX: 1,
+      scaleY: 1,
+      opacity: 1,
+    };
+
+    const newShapesList = [...shapes, newStampGroup];
+    updateStateAndHistory(newShapesList, [newStampGroup.id]);
+
+    setIsPlacingStamp(null); // Reset placing mode
+    setCurrentTool('select'); // Revert to select tool
+    toast({ title: "Stamp Placed", description: `"${isPlacingStamp.name}" added to canvas.` });
+
+  }, [isPlacingStamp, shapes, updateStateAndHistory, toast]);
+
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const targetElement = event.target as HTMLElement;
-      const isInputFocused = targetElement.tagName === 'INPUT' || targetElement.tagName === 'TEXTAREA' || targetElement.isContentEditable;
+      const isInputFocused = ['INPUT', 'TEXTAREA'].includes(targetElement.tagName) || targetElement.isContentEditable;
 
       if ((event.key === 'Delete' || event.key === 'Backspace') && isInputFocused) {
         return; 
@@ -263,7 +425,6 @@ export default function VectorCanvasClient() {
       if ((event.ctrlKey || event.metaKey) && (event.key === 'g' || event.key === 'G') && isInputFocused) {
          return; 
       }
-
 
       if (event.ctrlKey || event.metaKey) {
         if (event.key === 'z') {
@@ -282,11 +443,16 @@ export default function VectorCanvasClient() {
       } else if ((event.key === 'Delete' || event.key === 'Backspace') && !isInputFocused) {
           event.preventDefault();
           localHandleDeleteSelected();
+      } else if (event.key === 'Escape' && isPlacingStamp) {
+          event.preventDefault();
+          setIsPlacingStamp(null);
+          setCurrentTool('select');
+          toast({ title: "Stamp Placement Cancelled" });
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo, redo, localHandleGroup, handleUngroup, localHandleDeleteSelected]);
+  }, [undo, redo, localHandleGroup, handleUngroup, localHandleDeleteSelected, isPlacingStamp, toast]);
 
   useEffect(() => {
     if (currentHistory) {
@@ -367,30 +533,38 @@ export default function VectorCanvasClient() {
       toast({ title: "Error", description: "Canvas not ready.", variant: "destructive" });
       return;
     }
+    // Temporarily hide transformers and handles
     const transformerNode = stageRef.current.findOne('Transformer');
     const wasTransformerVisible = transformerNode?.isVisible();
-
     if (transformerNode) transformerNode.visible(false);
-    stageRef.current.find('.line-handle, .vertex-handle').forEach(handle => handle.visible(false));
+
+    const handles = stageRef.current.find('.line-handle, .vertex-handle');
+    const handleVisibility: {node: Konva.Node, visible: boolean}[] = [];
+    handles.forEach(handle => {
+        handleVisibility.push({node: handle, visible: handle.isVisible()});
+        handle.visible(false);
+    });
+    
     const selectionRectNode = stageRef.current.findOne('.selection-rectangle-class');
     const wasSelectionRectVisible = selectionRectNode?.isVisible();
     if (selectionRectNode) selectionRectNode.visible(false);
 
-    stageRef.current.batchDraw();
+    stageRef.current.batchDraw(); // Ensure changes are rendered before export
 
     const dataURL = stageRef.current.toDataURL({
         mimeType: 'image/png',
         quality: 1,
-        pixelRatio: 2,
+        pixelRatio: 2, // For higher resolution PNGs
         width: canvasWidth,
         height: canvasHeight,
     });
 
+    // Restore visibility
     if (transformerNode && wasTransformerVisible) transformerNode.visible(true);
-    stageRef.current.find('.line-handle, .vertex-handle').forEach(handle => handle.visible(true)); 
+    handleVisibility.forEach(item => item.node.visible(item.visible));
     if (selectionRectNode && wasSelectionRectVisible) selectionRectNode.visible(true);
-
-    stageRef.current.batchDraw();
+    
+    stageRef.current.batchDraw(); // Redraw with UI elements back
 
     const a = document.createElement('a');
     a.href = dataURL;
@@ -410,13 +584,16 @@ export default function VectorCanvasClient() {
   const selectedShapesObjects = shapes.filter(shape => selectedShapeIds.includes(shape.id));
 
   return (
-    <div className="flex flex-col h-screen bg-white text-foreground overflow-hidden">
+    <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
       <Toolbar
         currentTool={currentTool}
         setCurrentTool={(tool) => {
             setCurrentTool(tool);
-            if (tool !== 'select') {
+            if (tool !== 'select' && tool !== 'stamp') { // Keep selection if switching to stamp for placement
                 setSelectedShapeIds([]);
+            }
+            if (tool !== 'stamp') {
+                setIsPlacingStamp(null); // Cancel stamp placement if switching to another tool
             }
         }}
         defaultFillColor={defaultFillColor}
@@ -441,6 +618,10 @@ export default function VectorCanvasClient() {
         setCanvasWidth={setCanvasWidth}
         canvasHeight={canvasHeight}
         setCanvasHeight={setCanvasHeight}
+        onSaveStamp={handleSaveStamp}
+        onLoadStamp={handleLoadStamp}
+        onDeleteStamp={handleDeleteStamp}
+        savedStamps={savedStamps}
       />
       <div className="flex flex-1 min-h-0">
         <div className="flex-1 relative bg-white border-r border-border">
@@ -452,6 +633,8 @@ export default function VectorCanvasClient() {
             onUpdateShapes={(updatedShapesList) => updateStateAndHistory(updatedShapesList, selectedShapeIds.filter(id => updatedShapesList.some(s => s.id === id)))}
             onUpdateSingleShape={handleUpdateSingleShape}
             onAddShape={handleAddShape}
+            onPlaceStamp={placeStampOnCanvas}
+            isPlacingStampActive={!!isPlacingStamp}
             currentTool={currentTool}
             defaultFillColor={defaultFillColor}
             defaultStrokeColor={defaultStrokeColor}
@@ -469,4 +652,3 @@ export default function VectorCanvasClient() {
     </div>
   );
 }
-

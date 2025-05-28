@@ -1,14 +1,15 @@
 
 "use client";
 
-import React from 'react';
-import type { Tool } from '@/lib/types';
+import React, { useState } from 'react';
+import type { Tool, Template } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   MousePointer2,
   Square,
@@ -27,7 +28,8 @@ import {
   Download, // Export JSON
   Upload, // Import JSON
   ImageDown, // Save as PNG
-  Maximize, // Canvas Size Icon (example)
+  Maximize, // Canvas Size Icon
+  Trash2, // Delete Stamp
 } from 'lucide-react';
 import {
   Select,
@@ -62,6 +64,10 @@ interface ToolbarProps {
   setCanvasWidth: (width: number) => void;
   canvasHeight: number;
   setCanvasHeight: (height: number) => void;
+  onSaveStamp: (name: string) => void;
+  onLoadStamp: (templateId: string) => void;
+  onDeleteStamp: (templateId: string) => void;
+  savedStamps: Template[];
 }
 
 const tools: { name: Tool; icon: React.ElementType; label: string; type: 'shape' | 'action' }[] = [
@@ -72,7 +78,6 @@ const tools: { name: Tool; icon: React.ElementType; label: string; type: 'shape'
   { name: 'polyline', icon: Spline, label: 'Polyline', type: 'shape' },
   { name: 'polygon', icon: Hexagon, label: 'Polygon', type: 'shape' },
   { name: 'text', icon: TextIcon, label: 'Text', type: 'shape' },
-  { name: 'stamp', icon: StampIcon, label: 'Stamp', type: 'action' },
 ];
 
 export default function Toolbar({
@@ -100,11 +105,29 @@ export default function Toolbar({
   setCanvasWidth,
   canvasHeight,
   setCanvasHeight,
+  onSaveStamp,
+  onLoadStamp,
+  onDeleteStamp,
+  savedStamps,
 }: ToolbarProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [stampName, setStampName] = useState('');
+  const [stampPopoverOpen, setStampPopoverOpen] = useState(false);
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleSaveStampClick = () => {
+    if (stampName.trim()) {
+      onSaveStamp(stampName.trim());
+      setStampName(''); // Clear input after saving
+    }
+  };
+
+  const handleLoadStampClick = (templateId: string) => {
+    onLoadStamp(templateId);
+    setStampPopoverOpen(false); // Close popover after loading
   };
   
   return (
@@ -127,6 +150,64 @@ export default function Toolbar({
             </TooltipContent>
           </Tooltip>
         ))}
+
+        <Popover open={stampPopoverOpen} onOpenChange={setStampPopoverOpen}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <Button variant={currentTool === 'stamp' ? 'secondary' : 'ghost'} size="icon" aria-label="Stamps">
+                  <StampIcon className="h-5 w-5" />
+                </Button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent><p>Manage & Use Stamps</p></TooltipContent>
+          </Tooltip>
+          <PopoverContent className="w-64 p-4 space-y-3">
+            <div>
+              <Label htmlFor="stampName" className="text-xs">New Stamp Name</Label>
+              <div className="flex space-x-2 mt-1">
+                <Input 
+                  id="stampName" 
+                  value={stampName} 
+                  onChange={(e) => setStampName(e.target.value)} 
+                  placeholder="e.g., My Icon"
+                  className="h-8 text-xs"
+                />
+                <Button onClick={handleSaveStampClick} size="sm" disabled={selectedShapesCount === 0 || !stampName.trim()} className="text-xs h-8">Save Sel.</Button>
+              </div>
+            </div>
+            <Separator />
+            <Label className="text-xs">Load Stamp</Label>
+            {savedStamps.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No stamps saved yet.</p>
+            ) : (
+              <ScrollArea className="h-[150px]">
+                <div className="space-y-1">
+                {savedStamps.map((stamp) => (
+                  <div key={stamp.id} className="flex items-center justify-between">
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start text-xs h-8 px-2"
+                      onClick={() => handleLoadStampClick(stamp.id)}
+                    >
+                      {stamp.name}
+                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => onDeleteStamp(stamp.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent><p>Delete Stamp</p></TooltipContent>
+                    </Tooltip>
+                  </div>
+                ))}
+                </div>
+              </ScrollArea>
+            )}
+          </PopoverContent>
+        </Popover>
+
 
         <Separator orientation="vertical" className="h-8 mx-1" />
 
@@ -283,7 +364,7 @@ export default function Toolbar({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={onUngroup} disabled={selectedShapesCount !== 1 /* Needs a single group selected */} aria-label="Ungroup">
+            <Button variant="ghost" size="icon" onClick={onUngroup} disabled={selectedShapesCount !== 1} aria-label="Ungroup">
               <UngroupIcon className="h-5 w-5" />
             </Button>
           </TooltipTrigger>
