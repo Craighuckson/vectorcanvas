@@ -15,7 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 
 const DynamicKonvaCanvas = dynamic(
   () => import('@/components/vector-canvas/KonvaCanvas'),
-  { 
+  {
     ssr: false,
     loading: () => (
       <div className="flex-1 relative bg-white border-r border-border flex items-center justify-center">
@@ -28,8 +28,8 @@ const DynamicKonvaCanvas = dynamic(
 const initialShapes: Shape[] = [];
 const initialSelectedShapeIds: string[] = [];
 const initialTool: Tool = 'select';
-const initialDefaultFillColor = '#A3E47F'; 
-const initialDefaultStrokeColor = '#000000';
+const initialDefaultFillColor = '#A3E47F';
+const initialDefaultStrokeColor = '#000000'; // Updated to black
 const initialDefaultStrokeWidth = 2;
 const initialCurrentLineStyle = 'solid' as const;
 const initialCanvasWidth = 1920;
@@ -51,7 +51,7 @@ export default function VectorCanvasClient() {
   const [currentLineStyle, setCurrentLineStyle] = useState<'solid' | 'dashed' | 'dotted'>(initialCurrentLineStyle);
   const [canvasWidth, setCanvasWidth] = useState<number>(initialCanvasWidth);
   const [canvasHeight, setCanvasHeight] = useState<number>(initialCanvasHeight);
-  
+
   const stageRef = useRef<KonvaStageType | null>(null);
   const { toast } = useToast();
 
@@ -67,19 +67,20 @@ export default function VectorCanvasClient() {
     const newShapes = [...shapes, shape];
     updateStateAndHistory(newShapes, [shape.id]);
   }, [shapes, updateStateAndHistory]);
-  
+
   const handleUpdateSingleShape = useCallback((updatedShape: Shape) => {
     const newShapes = shapes.map(s => s.id === updatedShape.id ? updatedShape : s);
-    updateStateAndHistory(newShapes, selectedShapeIds.includes(updatedShape.id) ? selectedShapeIds : [updatedShape.id]);
+    // Preserve selection if the updated shape is already selected, otherwise select it.
+    const newSelectedIds = selectedShapeIds.includes(updatedShape.id) ? selectedShapeIds : [updatedShape.id];
+    updateStateAndHistory(newShapes, newSelectedIds);
   }, [shapes, selectedShapeIds, updateStateAndHistory]);
-  
+
   const handleUpdateMultipleShapes = useCallback((updatedShapes: Shape[]) => {
-    const updatedShapeIds = updatedShapes.map(us => us.id);
     const newShapes = shapes.map(s => {
       const foundUpdate = updatedShapes.find(us => us.id === s.id);
       return foundUpdate ? foundUpdate : s;
     });
-    updateStateAndHistory(newShapes, selectedShapeIds); 
+    updateStateAndHistory(newShapes, selectedShapeIds);
   }, [shapes, selectedShapeIds, updateStateAndHistory]);
 
 
@@ -99,23 +100,49 @@ export default function VectorCanvasClient() {
     const remainingShapes = shapes.filter(s => !selectedShapeIds.includes(s.id));
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
     shapesToGroup.forEach(s => {
         const sCurrentX = s.x || 0;
         const sCurrentY = s.y || 0;
-        const sWidth = (s.width || 0) * (s.scaleX || 1);
-        const sHeight = (s.height || 0) * (s.scaleY || 1);
-        
-        minX = Math.min(minX, sCurrentX);
-        minY = Math.min(minY, sCurrentY);
-        maxX = Math.max(maxX, sCurrentX + sWidth);
-        maxY = Math.max(maxY, sCurrentY + sHeight);
+
+        let sWidth = 0;
+        let sHeight = 0;
+
+        if (s.type === 'line' || s.type === 'polyline' || s.type === 'polygon') {
+            // For line-based shapes, calculate bounding box from points
+            let sMinX = Infinity, sMinY = Infinity, sMaxX = -Infinity, sMaxY = -Infinity;
+            for(let i = 0; i < s.points.length; i+=2) {
+                sMinX = Math.min(sMinX, s.points[i]);
+                sMaxX = Math.max(sMaxX, s.points[i]);
+                sMinY = Math.min(sMinY, s.points[i+1]);
+                sMaxY = Math.max(sMaxY, s.points[i+1]);
+            }
+            sWidth = sMaxX - sMinX;
+            sHeight = sMaxY - sMinY;
+            // Adjust currentX, currentY if points are negative relative to origin
+             minX = Math.min(minX, sCurrentX + sMinX);
+             minY = Math.min(minY, sCurrentY + sMinY);
+             maxX = Math.max(maxX, sCurrentX + sMaxX);
+             maxY = Math.max(maxY, sCurrentY + sMaxY);
+
+        } else { // For rect, ellipse, text, group
+            sWidth = (s.width || 0) * (s.scaleX || 1);
+            sHeight = (s.height || 0) * (s.scaleY || 1);
+            minX = Math.min(minX, sCurrentX);
+            minY = Math.min(minY, sCurrentY);
+            maxX = Math.max(maxX, sCurrentX + sWidth);
+            maxY = Math.max(maxY, sCurrentY + sHeight);
+        }
     });
-    
-    if (maxX < minX || shapesToGroup.every(s => s.width === undefined)) { // Handle cases with no width/height like lines
-        maxX = minX + 50; // Default group size if bounds are weird
-    }
-    if (maxY < minY || shapesToGroup.every(s => s.height === undefined)) {
-        maxY = minY + 50;
+
+
+    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY) || maxX <= minX || maxY <= minY) {
+        // Fallback if bounds are not valid (e.g. only points, no dimensions)
+        const firstShapePos = shapesToGroup[0] ? {x: shapesToGroup[0].x || 0, y: shapesToGroup[0].y || 0} : {x:0, y:0};
+        minX = firstShapePos.x;
+        minY = firstShapePos.y;
+        maxX = minX + 100; // Default group size
+        maxY = minY + 100;
     }
 
 
@@ -124,14 +151,27 @@ export default function VectorCanvasClient() {
       type: 'group',
       x: minX,
       y: minY,
-      width: Math.max(5, maxX - minX), // Ensure minimum group size
+      width: Math.max(5, maxX - minX),
       height: Math.max(5, maxY - minY),
-      children: shapesToGroup.map(s => ({
-        ...s, 
-        x: (s.x || 0) - minX, 
-        y: (s.y || 0) - minY, 
-        draggable: false, 
-      })),
+      children: shapesToGroup.map(s => {
+        let childX = (s.x || 0) - minX;
+        let childY = (s.y || 0) - minY;
+        // For line-based shapes whose origin might not be top-left of their points bbox
+        if ((s.type === 'line' || s.type === 'polyline' || s.type === 'polygon')) {
+            let sMinXpts = Infinity;
+             for(let i = 0; i < s.points.length; i+=2) {
+                sMinXpts = Math.min(sMinXpts, s.points[i]);
+            }
+            // childX -= sMinXpts; // This part needs careful thought if points aren't 0,0 based from shape x,y
+        }
+
+        return {
+            ...s,
+            x: childX,
+            y: childY,
+            draggable: false, // Children within a group are not individually draggable by default
+        };
+      }),
       draggable: true,
       rotation: 0,
       scaleX: 1,
@@ -154,39 +194,56 @@ export default function VectorCanvasClient() {
         return;
     }
     const remainingShapes = shapes.filter(s => s.id !== groupToUngroup.id);
-    
+
     const konvaGroupNode = stageRef.current?.findOne('#' + groupToUngroup.id) as Konva.Group | undefined;
 
     const ungroupedChildren = groupToUngroup.children.map(child => {
-        let absoluteX = (child.x || 0);
-        let absoluteY = (child.y || 0);
-        
+        let absoluteX = child.x || 0;
+        let absoluteY = child.y || 0;
         let newScaleX = child.scaleX || 1;
         let newScaleY = child.scaleY || 1;
         let newRotation = child.rotation || 0;
 
-        if (konvaGroupNode) { // Apply group's transformation to children before ungrouping
-          const transform = konvaGroupNode.getTransform(); // Get local transform of the group relative to its parent (the layer)
-          const childOriginalPos = { x: child.x || 0, y: child.y || 0 };
-          
-          // Transform child's relative position by group's transform to get its new position on the layer
-          const transformedChildPos = transform.point(childOriginalPos);
-          absoluteX = transformedChildPos.x;
-          absoluteY = transformedChildPos.y;
-          
-          // Apply group's scale and rotation
-          newScaleX *= (groupToUngroup.scaleX || 1);
-          newScaleY *= (groupToUngroup.scaleY || 1);
-          newRotation += (groupToUngroup.rotation || 0);
+        if (konvaGroupNode) {
+            const transform = konvaGroupNode.getAbsoluteTransform(); // Use absolute transform relative to the stage
+            const childOriginalPos = { x: child.x || 0, y: child.y || 0 };
+            
+            // If children were positioned relative to group's (0,0), transform by group's total transform
+            const transformedChildPos = transform.point(childOriginalPos);
+            absoluteX = transformedChildPos.x;
+            absoluteY = transformedChildPos.y;
+
+            // Decompose the group's absolute transform to apply scale and rotation
+            // This is a simplified approach. True decomposition is more complex.
+            // For now, we assume children's scale/rotation are relative to the group's scale/rotation.
+            newScaleX *= (groupToUngroup.scaleX || 1);
+            newScaleY *= (groupToUngroup.scaleY || 1);
+            newRotation += (groupToUngroup.rotation || 0);
+            // This logic needs refinement if children had their own rotations/scales *before* grouping
+            // and those need to be preserved *after* group's transform is applied.
+            // Konva's node.absolutePosition(), absoluteRotation(), absoluteScale() might be more direct.
+            
+            // Attempt to get absolute properties directly from Konva child nodes if they exist
+            const konvaChildNode = konvaGroupNode.findOne('#'+child.id);
+            if (konvaChildNode) {
+                const absPos = konvaChildNode.absolutePosition();
+                absoluteX = absPos.x;
+                absoluteY = absPos.y;
+                newRotation = konvaChildNode.absoluteRotation();
+                const absScale = konvaChildNode.absoluteScale();
+                newScaleX = absScale.x;
+                newScaleY = absScale.y;
+            }
+
 
         } else { // Fallback if Konva node not found (should be rare)
+            // This fallback assumes children x,y are relative to group's origin and group x,y is on stage.
             absoluteX += (groupToUngroup.x || 0);
             absoluteY += (groupToUngroup.y || 0);
             newScaleX *= (groupToUngroup.scaleX || 1);
             newScaleY *= (groupToUngroup.scaleY || 1);
             newRotation += (groupToUngroup.rotation || 0);
         }
-
 
         return {
             ...child,
@@ -195,7 +252,7 @@ export default function VectorCanvasClient() {
             scaleX: newScaleX,
             scaleY: newScaleY,
             rotation: newRotation,
-            draggable: true, 
+            draggable: true,
         };
     });
     const newShapes = [...remainingShapes, ...ungroupedChildren];
@@ -203,10 +260,22 @@ export default function VectorCanvasClient() {
     toast({ title: "Ungrouped", description: "Group disbanded."});
   }, [shapes, selectedShapeIds, updateStateAndHistory, toast, stageRef]);
 
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const targetElement = event.target as HTMLElement;
       const isInputFocused = targetElement.tagName === 'INPUT' || targetElement.tagName === 'TEXTAREA' || targetElement.isContentEditable;
+
+      // Skip global shortcuts if an input is focused,
+      // UNLESS it's a specific drawing finalization key like Enter/Escape
+      // which is handled locally in KonvaCanvas now.
+      if (isInputFocused && (event.key === 'Delete' || event.key === 'Backspace')) {
+        return; // Allow default input behavior
+      }
+      if (isInputFocused && (event.ctrlKey || event.metaKey) && (event.key === 'g' || event.key === 'G')) {
+         return; // Prevent grouping shortcuts if input focused
+      }
+
 
       if (event.ctrlKey || event.metaKey) {
         if (event.key === 'z') {
@@ -215,18 +284,16 @@ export default function VectorCanvasClient() {
         } else if (event.key === 'y' || (event.key === 'Z' && event.shiftKey)) {
           event.preventDefault();
           redo();
-        } else if (event.key === 'g') {
+        } else if (event.key === 'g' && !isInputFocused) {
           event.preventDefault();
-          if (!isInputFocused) localHandleGroup();
-        } else if (event.key === 'G' && event.shiftKey) { 
+          localHandleGroup();
+        } else if (event.key === 'G' && event.shiftKey && !isInputFocused) {
             event.preventDefault();
-            if (!isInputFocused) handleUngroup();
+            handleUngroup();
         }
-      } else if (event.key === 'Delete' || event.key === 'Backspace') {
-        if (!isInputFocused) {
+      } else if ((event.key === 'Delete' || event.key === 'Backspace') && !isInputFocused) {
           event.preventDefault();
           localHandleDeleteSelected();
-        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -280,8 +347,8 @@ export default function VectorCanvasClient() {
           const data = JSON.parse(content);
           if (data.shapes && Array.isArray(data.shapes)) {
             const newShapes = data.shapes as Shape[];
-            resetHistory({ shapes: newShapes, selectedShapeIds: [] }); 
-            
+            resetHistory({ shapes: newShapes, selectedShapeIds: [] });
+
             if(stageRef.current && data.viewParams) {
               stageRef.current.x(data.viewParams.x || 0);
               stageRef.current.y(data.viewParams.y || 0);
@@ -303,7 +370,7 @@ export default function VectorCanvasClient() {
         }
       };
       reader.readAsText(file);
-      event.target.value = ''; 
+      event.target.value = '';
     }
   }, [resetHistory, stageRef, toast, setCanvasWidth, setCanvasHeight]);
 
@@ -314,27 +381,29 @@ export default function VectorCanvasClient() {
     }
     const transformerNode = stageRef.current.findOne('Transformer');
     const wasTransformerVisible = transformerNode?.isVisible();
-    
+
     if (transformerNode) transformerNode.visible(false);
-    stageRef.current.find('.line-handle').forEach(handle => handle.visible(false));
-    const selectionRectNode = stageRef.current.findOne('.selection-rectangle-class'); // Assuming you add this class
+    // Hide all custom handles (line endpoints, vertex handles)
+    stageRef.current.find('.line-handle, .vertex-handle').forEach(handle => handle.visible(false));
+    const selectionRectNode = stageRef.current.findOne('.selection-rectangle-class');
+    const wasSelectionRectVisible = selectionRectNode?.isVisible();
     if (selectionRectNode) selectionRectNode.visible(false);
 
-    stageRef.current.batchDraw(); 
+    stageRef.current.batchDraw();
 
-    const dataURL = stageRef.current.toDataURL({ 
-        mimeType: 'image/png', 
-        quality: 1, 
-        pixelRatio: 2, // Consider making this configurable or based on export size
+    const dataURL = stageRef.current.toDataURL({
+        mimeType: 'image/png',
+        quality: 1,
+        pixelRatio: 2,
         width: canvasWidth,
         height: canvasHeight,
     });
-    
-    if (transformerNode && wasTransformerVisible) transformerNode.visible(true); 
-    stageRef.current.find('.line-handle').forEach(handle => handle.visible(true));
-    if (selectionRectNode) selectionRectNode.visible(true); // Restore if it was visible by other means
 
-    stageRef.current.batchDraw(); 
+    if (transformerNode && wasTransformerVisible) transformerNode.visible(true);
+    stageRef.current.find('.line-handle, .vertex-handle').forEach(handle => handle.visible(true)); // Consider original visibility if needed
+    if (selectionRectNode && wasSelectionRectVisible) selectionRectNode.visible(true);
+
+    stageRef.current.batchDraw();
 
     const a = document.createElement('a');
     a.href = dataURL;
@@ -344,7 +413,7 @@ export default function VectorCanvasClient() {
     document.body.removeChild(a);
     toast({ title: "Saved as PNG", description: "Drawing exported as PNG." });
   }, [stageRef, toast, canvasWidth, canvasHeight]);
-  
+
   const getDashArray = useCallback(() => {
     if (currentLineStyle === 'dashed') return [10, 5];
     if (currentLineStyle === 'dotted') return [defaultStrokeWidth < 1 ? 1 : defaultStrokeWidth, (defaultStrokeWidth < 1 ? 1 : defaultStrokeWidth) * 2];
@@ -352,12 +421,19 @@ export default function VectorCanvasClient() {
   }, [currentLineStyle, defaultStrokeWidth]);
 
   const selectedShapesObjects = shapes.filter(shape => selectedShapeIds.includes(shape.id));
-  
+
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
       <Toolbar
         currentTool={currentTool}
-        setCurrentTool={setCurrentTool}
+        setCurrentTool={(tool) => {
+            setCurrentTool(tool);
+            // If switching away from select tool, clear current selection and edit mode
+            if (tool !== 'select') {
+                setSelectedShapeIds([]);
+                // Consider if setEditingShapeId(null) is needed here too from KonvaCanvas
+            }
+        }}
         defaultFillColor={defaultFillColor}
         setDefaultFillColor={setDefaultFillColor}
         defaultStrokeColor={defaultStrokeColor}
@@ -382,12 +458,12 @@ export default function VectorCanvasClient() {
         setCanvasHeight={setCanvasHeight}
       />
       <div className="flex flex-1 min-h-0">
-        <div className="flex-1 relative bg-white border-r border-border"> {/* Changed bg-muted/30 to bg-white */}
+        <div className="flex-1 relative bg-white border-r border-border">
           <DynamicKonvaCanvas
             stageRef={stageRef}
             shapes={shapes}
             selectedShapeIds={selectedShapeIds}
-            setSelectedShapeIds={(ids) => updateStateAndHistory(shapes, ids)} 
+            setSelectedShapeIds={(ids) => updateStateAndHistory(shapes, ids)}
             onUpdateShapes={(updatedShapesList) => updateStateAndHistory(updatedShapesList, selectedShapeIds.filter(id => updatedShapesList.some(s => s.id === id)))}
             onUpdateSingleShape={handleUpdateSingleShape}
             onAddShape={handleAddShape}
@@ -396,6 +472,8 @@ export default function VectorCanvasClient() {
             defaultStrokeColor={defaultStrokeColor}
             defaultStrokeWidth={defaultStrokeWidth}
             dashArray={getDashArray()}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
           />
         </div>
         <PropertiesPanel
