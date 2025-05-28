@@ -27,6 +27,7 @@ import {
   Download, // Export JSON
   Upload, // Import JSON
   ImageDown, // Save as PNG
+  Maximize, // Canvas Size Icon (example)
 } from 'lucide-react';
 import {
   Select,
@@ -56,10 +57,11 @@ interface ToolbarProps {
   onSaveAsPng: () => void;
   onGroup: () => void;
   onUngroup: () => void;
-  // onSaveAsTemplate: () => void;
-  // onLoadTemplate: (templateId: string) => void;
-  // templates: Template[]; // Assuming Template is defined in types
   selectedShapesCount: number;
+  canvasWidth: number;
+  setCanvasWidth: (width: number) => void;
+  canvasHeight: number;
+  setCanvasHeight: (height: number) => void;
 }
 
 const tools: { name: Tool; icon: React.ElementType; label: string; type: 'shape' | 'action' }[] = [
@@ -94,6 +96,10 @@ export default function Toolbar({
   onGroup,
   onUngroup,
   selectedShapesCount,
+  canvasWidth,
+  setCanvasWidth,
+  canvasHeight,
+  setCanvasHeight,
 }: ToolbarProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -180,7 +186,7 @@ export default function Toolbar({
               <Input
                 type="number"
                 value={defaultStrokeWidth}
-                onChange={(e) => setDefaultStrokeWidth(Math.max(0, parseInt(e.target.value, 10)))} // Allow 0 for no stroke
+                onChange={(e) => setDefaultStrokeWidth(Math.max(0, parseInt(e.target.value, 10)))}
                 className="h-9 w-16 text-sm px-2"
                 min="0"
                 aria-label="Stroke Width"
@@ -207,6 +213,46 @@ export default function Toolbar({
         </Select>
 
         <Separator orientation="vertical" className="h-8 mx-1" />
+        
+        <Popover>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                        <Button variant="ghost" size="icon" aria-label="Canvas Size">
+                            <Maximize className="h-5 w-5" />
+                        </Button>
+                    </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent><p>Canvas Size (for Export)</p></TooltipContent>
+            </Tooltip>
+            <PopoverContent className="w-64 p-4 space-y-2">
+                <div className="grid grid-cols-2 items-center gap-2">
+                    <Label htmlFor="canvasWidth" className="text-xs">Width (px)</Label>
+                    <Input
+                        id="canvasWidth"
+                        type="number"
+                        value={canvasWidth}
+                        onChange={(e) => setCanvasWidth(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        className="h-8 text-xs"
+                        min="1"
+                    />
+                </div>
+                <div className="grid grid-cols-2 items-center gap-2">
+                    <Label htmlFor="canvasHeight" className="text-xs">Height (px)</Label>
+                    <Input
+                        id="canvasHeight"
+                        type="number"
+                        value={canvasHeight}
+                        onChange={(e) => setCanvasHeight(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        className="h-8 text-xs"
+                        min="1"
+                    />
+                </div>
+            </PopoverContent>
+        </Popover>
+
+        <Separator orientation="vertical" className="h-8 mx-1" />
+
 
         <Tooltip>
           <TooltipTrigger asChild>

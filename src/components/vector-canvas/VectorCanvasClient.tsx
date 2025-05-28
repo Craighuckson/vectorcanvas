@@ -32,6 +32,9 @@ const initialDefaultFillColor = '#A3E47F';
 const initialDefaultStrokeColor = '#000000';
 const initialDefaultStrokeWidth = 2;
 const initialCurrentLineStyle = 'solid' as const;
+const initialCanvasWidth = 1920;
+const initialCanvasHeight = 1080;
+
 
 const initialHistoryEntry: HistoryEntry = {
   shapes: initialShapes,
@@ -46,6 +49,8 @@ export default function VectorCanvasClient() {
   const [defaultStrokeColor, setDefaultStrokeColor] = useState<string>(initialDefaultStrokeColor);
   const [defaultStrokeWidth, setDefaultStrokeWidth] = useState<number>(initialDefaultStrokeWidth);
   const [currentLineStyle, setCurrentLineStyle] = useState<'solid' | 'dashed' | 'dotted'>(initialCurrentLineStyle);
+  const [canvasWidth, setCanvasWidth] = useState<number>(initialCanvasWidth);
+  const [canvasHeight, setCanvasHeight] = useState<number>(initialCanvasHeight);
   
   const stageRef = useRef<KonvaStageType | null>(null);
   const { toast } = useToast();
@@ -106,20 +111,21 @@ export default function VectorCanvasClient() {
         maxY = Math.max(maxY, sCurrentY + sHeight);
     });
     
-    if (maxX < minX) { 
-        maxX = minX + 50; 
+    if (maxX < minX || shapesToGroup.every(s => s.width === undefined)) { // Handle cases with no width/height like lines
+        maxX = minX + 50; // Default group size if bounds are weird
     }
-    if (maxY < minY) { 
-        maxY = minY + 50; 
+    if (maxY < minY || shapesToGroup.every(s => s.height === undefined)) {
+        maxY = minY + 50;
     }
+
 
     const group: GroupShape = {
       id: uuidv4(),
       type: 'group',
       x: minX,
       y: minY,
-      width: maxX - minX,
-      height: maxY - minY,
+      width: Math.max(5, maxX - minX), // Ensure minimum group size
+      height: Math.max(5, maxY - minY),
       children: shapesToGroup.map(s => ({
         ...s, 
         x: (s.x || 0) - minX, 
@@ -152,24 +158,43 @@ export default function VectorCanvasClient() {
     const konvaGroupNode = stageRef.current?.findOne('#' + groupToUngroup.id) as Konva.Group | undefined;
 
     const ungroupedChildren = groupToUngroup.children.map(child => {
-        let absoluteX = (child.x || 0) + (groupToUngroup.x || 0);
-        let absoluteY = (child.y || 0) + (groupToUngroup.y || 0);
+        let absoluteX = (child.x || 0);
+        let absoluteY = (child.y || 0);
         
+        let newScaleX = child.scaleX || 1;
+        let newScaleY = child.scaleY || 1;
+        let newRotation = child.rotation || 0;
+
         if (konvaGroupNode) { // Apply group's transformation to children before ungrouping
-          const transform = konvaGroupNode.getAbsoluteTransform();
+          const transform = konvaGroupNode.getTransform(); // Get local transform of the group relative to its parent (the layer)
           const childOriginalPos = { x: child.x || 0, y: child.y || 0 };
+          
+          // Transform child's relative position by group's transform to get its new position on the layer
           const transformedChildPos = transform.point(childOriginalPos);
           absoluteX = transformedChildPos.x;
           absoluteY = transformedChildPos.y;
+          
+          // Apply group's scale and rotation
+          newScaleX *= (groupToUngroup.scaleX || 1);
+          newScaleY *= (groupToUngroup.scaleY || 1);
+          newRotation += (groupToUngroup.rotation || 0);
+
+        } else { // Fallback if Konva node not found (should be rare)
+            absoluteX += (groupToUngroup.x || 0);
+            absoluteY += (groupToUngroup.y || 0);
+            newScaleX *= (groupToUngroup.scaleX || 1);
+            newScaleY *= (groupToUngroup.scaleY || 1);
+            newRotation += (groupToUngroup.rotation || 0);
         }
+
 
         return {
             ...child,
             x: absoluteX,
             y: absoluteY,
-            scaleX: (child.scaleX || 1) * (groupToUngroup.scaleX || 1),
-            scaleY: (child.scaleY || 1) * (groupToUngroup.scaleY || 1),
-            rotation: (child.rotation || 0) + (groupToUngroup.rotation || 0),
+            scaleX: newScaleX,
+            scaleY: newScaleY,
+            rotation: newRotation,
             draggable: true, 
         };
     });
@@ -181,7 +206,7 @@ export default function VectorCanvasClient() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const targetElement = event.target as HTMLElement;
-      const isInputFocused = targetElement.tagName === 'INPUT' || targetElement.tagName === 'TEXTAREA';
+      const isInputFocused = targetElement.tagName === 'INPUT' || targetElement.tagName === 'TEXTAREA' || targetElement.isContentEditable;
 
       if (event.ctrlKey || event.metaKey) {
         if (event.key === 'z') {
@@ -226,6 +251,10 @@ export default function VectorCanvasClient() {
         x: stageRef.current.x(),
         y: stageRef.current.y(),
         scale: stageRef.current.scaleX(),
+      },
+      canvasDimensions: {
+        width: canvasWidth,
+        height: canvasHeight,
       }
     };
     const json = JSON.stringify(exportData, null, 2);
@@ -239,7 +268,7 @@ export default function VectorCanvasClient() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast({ title: "Exported", description: "Drawing saved as vector-canvas-drawing.json" });
-  }, [shapes, stageRef, toast]);
+  }, [shapes, stageRef, toast, canvasWidth, canvasHeight]);
 
   const handleImportJson = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -260,6 +289,10 @@ export default function VectorCanvasClient() {
               stageRef.current.scaleY(data.viewParams.scale || 1);
               stageRef.current.batchDraw();
             }
+            if (data.canvasDimensions) {
+              setCanvasWidth(data.canvasDimensions.width || initialCanvasWidth);
+              setCanvasHeight(data.canvasDimensions.height || initialCanvasHeight);
+            }
             toast({ title: "Imported", description: "Drawing loaded successfully." });
           } else {
             throw new Error("Invalid file format. Missing 'shapes' array.");
@@ -272,7 +305,7 @@ export default function VectorCanvasClient() {
       reader.readAsText(file);
       event.target.value = ''; 
     }
-  }, [resetHistory, stageRef, toast]);
+  }, [resetHistory, stageRef, toast, setCanvasWidth, setCanvasHeight]);
 
   const handleSaveAsPng = useCallback(() => {
     if (!stageRef.current) {
@@ -282,25 +315,24 @@ export default function VectorCanvasClient() {
     const transformerNode = stageRef.current.findOne('Transformer');
     const wasTransformerVisible = transformerNode?.isVisible();
     
-    const tempLayer = new Konva.Layer();
-    const lineHandlesGroup = new Konva.Group({name: 'line-handles-temporary-group'});
-
-    // Temporarily hide transformer and move line handles to a temporary non-visible layer
-    // or just hide them if they are simple nodes.
-    // For simplicity here, we'll just hide the transformer if it exists.
-    // A more robust solution for line handles would be to find them by name/type and hide them.
     if (transformerNode) transformerNode.visible(false);
-    
-    // Example: If line handles are named 'line-handle'
     stageRef.current.find('.line-handle').forEach(handle => handle.visible(false));
-
+    const selectionRectNode = stageRef.current.findOne('.selection-rectangle-class'); // Assuming you add this class
+    if (selectionRectNode) selectionRectNode.visible(false);
 
     stageRef.current.batchDraw(); 
 
-    const dataURL = stageRef.current.toDataURL({ mimeType: 'image/png', quality: 1, pixelRatio: 2 });
+    const dataURL = stageRef.current.toDataURL({ 
+        mimeType: 'image/png', 
+        quality: 1, 
+        pixelRatio: 2, // Consider making this configurable or based on export size
+        width: canvasWidth,
+        height: canvasHeight,
+    });
     
     if (transformerNode && wasTransformerVisible) transformerNode.visible(true); 
     stageRef.current.find('.line-handle').forEach(handle => handle.visible(true));
+    if (selectionRectNode) selectionRectNode.visible(true); // Restore if it was visible by other means
 
     stageRef.current.batchDraw(); 
 
@@ -311,7 +343,7 @@ export default function VectorCanvasClient() {
     a.click();
     document.body.removeChild(a);
     toast({ title: "Saved as PNG", description: "Drawing exported as PNG." });
-  }, [stageRef, toast]);
+  }, [stageRef, toast, canvasWidth, canvasHeight]);
   
   const getDashArray = useCallback(() => {
     if (currentLineStyle === 'dashed') return [10, 5];
@@ -344,9 +376,13 @@ export default function VectorCanvasClient() {
         onGroup={localHandleGroup}
         onUngroup={handleUngroup}
         selectedShapesCount={selectedShapeIds.length}
+        canvasWidth={canvasWidth}
+        setCanvasWidth={setCanvasWidth}
+        canvasHeight={canvasHeight}
+        setCanvasHeight={setCanvasHeight}
       />
       <div className="flex flex-1 min-h-0">
-        <div className="flex-1 relative bg-white border-r border-border">
+        <div className="flex-1 relative bg-white border-r border-border"> {/* Changed bg-muted/30 to bg-white */}
           <DynamicKonvaCanvas
             stageRef={stageRef}
             shapes={shapes}
@@ -370,4 +406,3 @@ export default function VectorCanvasClient() {
     </div>
   );
 }
-
