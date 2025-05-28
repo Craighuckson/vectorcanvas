@@ -19,7 +19,8 @@ interface PropertiesPanelProps {
 
 const commonFontFamilies = ["Arial", "Verdana", "Times New Roman", "Courier New", "Georgia", "Palatino", "Garamond", "Comic Sans MS", "Impact"];
 const commonFontStyles = ["normal", "bold", "italic", "bold italic"];
-const commonTextDecorations = ["", "underline", "line-through"];
+const TEXT_DECORATION_NONE_INTERNAL_VALUE = "none_internal_val"; // Unique internal value for "None"
+const commonTextDecorations = [TEXT_DECORATION_NONE_INTERNAL_VALUE, "underline", "line-through"];
 const commonAlignments = ["left", "center", "right"];
 const commonVerticalAlignments = ["top", "middle", "bottom"];
 
@@ -38,13 +39,11 @@ export default function PropertiesPanel({ selectedShapes, onUpdateShape }: Prope
     );
   }
 
-  // For multi-select, only show common editable properties or indicate mixed values.
-  // For simplicity, this example primarily focuses on single selection editing.
   const singleSelectedShape = selectedShapes.length === 1 ? selectedShapes[0] : null;
 
   const handleInputChange = (
     shapeId: string,
-    field: keyof Shape | keyof TextShape, // Allow TextShape specific fields
+    field: keyof Shape | keyof TextShape, 
     value: string | number | number[] | boolean | undefined
   ) => {
     const shapeToUpdate = selectedShapes.find(s => s.id === shapeId);
@@ -53,7 +52,7 @@ export default function PropertiesPanel({ selectedShapes, onUpdateShape }: Prope
       if (typeof value === 'string') {
         if (['x', 'y', 'width', 'height', 'strokeWidth', 'rotation', 'opacity', 'fontSize', 'padding', 'lineHeight', 'letterSpacing'].includes(field as string)) {
            processedValue = parseFloat(value);
-           if (isNaN(processedValue as number)) processedValue = (field === 'strokeWidth' || field === 'opacity') ? shapeToUpdate[field as keyof Shape] || 0 : 0; // Default to 0 or previous if invalid
+           if (isNaN(processedValue as number)) processedValue = (field === 'strokeWidth' || field === 'opacity') ? shapeToUpdate[field as keyof Shape] || 0 : 0; 
         }
       }
       if (field === 'dash' && typeof value === 'string') {
@@ -96,24 +95,30 @@ export default function PropertiesPanel({ selectedShapes, onUpdateShape }: Prope
         </div>
 
 
-        {shape.type !== 'group' && ( // Groups usually don't have their own fill/stroke, but their children do
+        {shape.type !== 'group' && ( 
           <>
-            <div className="space-y-1">
-              <Label htmlFor={`fill-${id}`} className="text-xs">Fill Color</Label>
-              <Input id={`fill-${id}`} type="color" value={shape.fill || '#00000000'} onChange={(e) => handleInputChange(id, 'fill', e.target.value)} className="h-8 w-full p-1" />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor={`stroke-${id}`} className="text-xs">Stroke Color</Label>
-              <Input id={`stroke-${id}`} type="color" value={shape.stroke || '#000000'} onChange={(e) => handleInputChange(id, 'stroke', e.target.value)} className="h-8 w-full p-1" />
-            </div>
-            <div className="grid grid-cols-2 gap-2 items-center">
-                <Label htmlFor={`strokeWidth-${id}`} className="text-xs">Stroke Width</Label>
-                <Input id={`strokeWidth-${id}`} type="number" min="0" value={shape.strokeWidth || 0} onChange={(e) => handleInputChange(id, 'strokeWidth', e.target.value)} className="h-8 text-xs" />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor={`dash-${id}`} className="text-xs">Dash Array (e.g., 10,5)</Label>
-              <Input id={`dash-${id}`} type="text" placeholder="e.g. 10,5" value={(shape.dash || []).join(',')} onChange={(e) => handleInputChange(id, 'dash', e.target.value)} className="h-8 text-xs" />
-            </div>
+            {(shape.type === 'rectangle' || shape.type === 'ellipse' || shape.type === 'polygon' || shape.type === 'text') && (
+              <div className="space-y-1">
+                <Label htmlFor={`fill-${id}`} className="text-xs">Fill Color</Label>
+                <Input id={`fill-${id}`} type="color" value={shape.fill || '#00000000'} onChange={(e) => handleInputChange(id, 'fill', e.target.value)} className="h-8 w-full p-1" />
+              </div>
+            )}
+            {(shape.type === 'rectangle' || shape.type === 'ellipse' || shape.type === 'polygon' || shape.type === 'line' || shape.type === 'polyline') && (
+              <>
+                <div className="space-y-1">
+                  <Label htmlFor={`stroke-${id}`} className="text-xs">Stroke Color</Label>
+                  <Input id={`stroke-${id}`} type="color" value={shape.stroke || '#000000'} onChange={(e) => handleInputChange(id, 'stroke', e.target.value)} className="h-8 w-full p-1" />
+                </div>
+                <div className="grid grid-cols-2 gap-2 items-center">
+                    <Label htmlFor={`strokeWidth-${id}`} className="text-xs">Stroke Width</Label>
+                    <Input id={`strokeWidth-${id}`} type="number" min="0" value={shape.strokeWidth || 0} onChange={(e) => handleInputChange(id, 'strokeWidth', e.target.value)} className="h-8 text-xs" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor={`dash-${id}`} className="text-xs">Dash Array (e.g., 10,5)</Label>
+                  <Input id={`dash-${id}`} type="text" placeholder="e.g. 10,5" value={(shape.dash || []).join(',')} onChange={(e) => handleInputChange(id, 'dash', e.target.value)} className="h-8 text-xs" />
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -146,10 +151,13 @@ export default function PropertiesPanel({ selectedShapes, onUpdateShape }: Prope
                 </Select>
 
                 <Label htmlFor={`textDecoration-${id}`} className="text-xs">Decoration</Label>
-                <Select value={(shape as TextShape).textDecoration || ''} onValueChange={(val) => handleInputChange(id, 'textDecoration', val)}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="None" /></SelectTrigger>
+                <Select
+                  value={((shape as TextShape).textDecoration === "" || !(shape as TextShape).textDecoration) ? TEXT_DECORATION_NONE_INTERNAL_VALUE : (shape as TextShape).textDecoration!}
+                  onValueChange={(val) => handleInputChange(id, 'textDecoration', val === TEXT_DECORATION_NONE_INTERNAL_VALUE ? "" : val)}
+                >
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                        {commonTextDecorations.map(deco => <SelectItem key={deco} value={deco} className="text-xs">{deco || 'None'}</SelectItem>)}
+                        {commonTextDecorations.map(deco => <SelectItem key={deco} value={deco} className="text-xs">{deco === TEXT_DECORATION_NONE_INTERNAL_VALUE ? "None" : deco}</SelectItem>)}
                     </SelectContent>
                 </Select>
 
@@ -191,7 +199,6 @@ export default function PropertiesPanel({ selectedShapes, onUpdateShape }: Prope
             </div>
         )}
 
-
         <Separator className="my-3"/>
       </div>
     );
@@ -205,12 +212,12 @@ export default function PropertiesPanel({ selectedShapes, onUpdateShape }: Prope
       </CardHeader>
       <ScrollArea className="flex-1">
         <CardContent className="p-0 space-y-4">
-          {/* If multiple selected, could show common properties or a message. For now, iterates or shows first. */}
-          {/* Best for UX with multi-select is to identify common properties and allow batch editing. */}
           {singleSelectedShape ? renderShapeProperties(singleSelectedShape) : <p className="text-xs text-muted-foreground">Edit common properties or select a single item for detailed editing.</p>}
-          {/* TODO: Add section for editing common properties if multiple shapes are selected */}
         </CardContent>
       </ScrollArea>
     </aside>
   );
 }
+
+
+    
