@@ -285,8 +285,8 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
         const dy = node.y() - (originalShape.y || 0);
         
         updatedShape.points = (originalShape as LineShape | PolylineShape | PolygonShape).points.map((p, i) => i % 2 === 0 ? p + dx : p + dy);
-        updatedShape.x = originalShape.x; // Keep original x/y, or reset to 0,0
-        updatedShape.y = originalShape.y;
+        updatedShape.x = originalShape.x || 0; // Keep original x/y, or reset to 0,0
+        updatedShape.y = originalShape.y || 0;
         node.position({x: originalShape.x || 0, y: originalShape.y || 0}); // Reset visual position after applying delta to points
       }
       onUpdateSingleShape(updatedShape);
@@ -486,3 +486,5 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
 };
 
 export default KonvaCanvas;
+
+    
