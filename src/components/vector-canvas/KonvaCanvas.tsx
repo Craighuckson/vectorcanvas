@@ -46,22 +46,21 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
   defaultStrokeColor,
   defaultStrokeWidth,
   dashArray,
-  // canvasWidth and canvasHeight are not used for bounds yet
 }) => {
   const transformerRef = useRef<Konva.Transformer | null>(null);
   const layerRef = useRef<Konva.Layer | null>(null);
-  const startHandleRef = useRef<Konva.Circle | null>(null); // For line start
-  const endHandleRef = useRef<Konva.Circle | null>(null);   // For line end
+  const startHandleRef = useRef<Konva.Circle | null>(null);
+  const endHandleRef = useRef<Konva.Circle | null>(null);   
 
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentDrawingShape, setCurrentDrawingShape] = useState<Shape | null>(null);
-  const [liveEditingShape, setLiveEditingShape] = useState<Shape | null>(null); // Holds a copy of the shape being vertex-edited
+  const [liveEditingShape, setLiveEditingShape] = useState<Shape | null>(null);
   
   const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; width: number; height: number; visible: boolean } | null>(null);
   const selectionRectRef = useRef<Konva.Rect>(null);
   
-  const [editingShapeId, setEditingShapeId] = useState<string | null>(null); // ID of shape in vertex edit mode
-  const [isDraggingVertex, setIsDraggingVertex] = useState<boolean>(false); // True if a line/poly vertex handle is being dragged
+  const [editingShapeId, setEditingShapeId] = useState<string | null>(null);
+  const [isDraggingVertex, setIsDraggingVertex] = useState<boolean>(false);
   const [multiSelectBounds, setMultiSelectBounds] = useState<{ x: number, y: number, width: number, height: number, visible: boolean } | null>(null);
   
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
@@ -83,14 +82,14 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
     if (stageRef.current) {
         setViewTransform({ x: stageRef.current.x(), y: stageRef.current.y(), scale: stageRef.current.scaleX() });
     }
-  }, [stageRef, containerSize]); // Update viewTransform if stage or container changes
+  }, [stageRef, containerSize]);
 
   const snapValue = useCallback((value: number, size: number): number => {
     return Math.round(value / size) * size;
   }, []);
 
   const snapPoint = useCallback((point: { x: number, y: number } | null, size: number): { x: number, y: number } => {
-    if (!point) return { x: 0, y: 0}; // Should not happen with valid input
+    if (!point) return { x: 0, y: 0};
     return {
       x: snapValue(point.x, size),
       y: snapValue(point.y, size),
@@ -157,7 +156,6 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
         selectedShapeIds.forEach(id => {
           const node = layerRef.current?.findOne('#' + id);
           if (node) {
-            // Only add non-line, non-editing poly/polygon shapes to transformer directly
             const shapeModel = shapes.find(s => s.id === id);
             if (shapeModel && shapeModel.type !== 'line' && !((shapeModel.type === 'polyline' || shapeModel.type === 'polygon') && editingShapeId === shapeModel.id) ) {
               selectedKonvaNodes.push(node);
@@ -197,10 +195,12 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
           event.stopPropagation(); 
 
           let finalShape = { ...currentDrawingShape };
-          finalShape.points = finalShape.points.slice(0, -2); // Remove the "live" point
+          if (finalShape.points.length > 2) { // Remove the "live" point only if more than one point exists
+            finalShape.points = finalShape.points.slice(0, -2); 
+          }
           
-          const minPoints = finalShape.type === 'polyline' ? 4 : (finalShape.type === 'polygon' ? 6 : 0); 
-          if (finalShape.points.length < minPoints) {
+          const minPointsRequired = finalShape.type === 'polyline' ? 4 : (finalShape.type === 'polygon' ? 6 : 0); 
+          if (finalShape.points.length < minPointsRequired) {
             onUpdateShapes(shapes.filter(s => s.id !== finalShape.id)); 
           } else {
             onUpdateSingleShape(finalShape);
@@ -223,6 +223,7 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
           onUpdateShapes(shapes.filter(s => s.id !== currentDrawingShape.id));
           setIsDrawing(false);
           setCurrentDrawingShape(null);
+          setLiveEditingShape(null);
           return; 
         }
         if (selectionRect?.visible) { 
@@ -235,11 +236,11 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
     };
     window.addEventListener('keydown', handleGeneralEscape);
     return () => window.removeEventListener('keydown', handleGeneralEscape);
-  }, [isDrawing, currentDrawingShape, shapes, onUpdateShapes, selectionRect, setIsDrawing, setCurrentDrawingShape, setSelectionRect]);
+  }, [isDrawing, currentDrawingShape, shapes, onUpdateShapes, selectionRect, setIsDrawing, setCurrentDrawingShape, setSelectionRect, setLiveEditingShape]);
 
 
   const handleMouseDown = (e: KonvaEventObject<MouseEvent>) => {
-    const pos = getPointerPosition(); // Already world-snapped if applicable
+    const pos = getPointerPosition(); 
 
     if (isPlacingStampActive && currentTool === 'stamp') {
       onPlaceStamp(pos.x, pos.y);
@@ -247,15 +248,15 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
     }
 
     if (e.target.name() === 'line-handle' || e.target.name() === 'vertex-handle') {
-      // This is now handled by onDragStart of the handle itself
       return;
     }
     
-    if (editingShapeId) { // If in vertex edit mode
+    if (editingShapeId) { 
       const clickedShapeId = e.target.id();
       const isVertexHandleOfEditingShape = e.target.name() === 'vertex-handle' && e.target.attrs['data-shape-id'] === editingShapeId;
       if (clickedShapeId !== editingShapeId && !isVertexHandleOfEditingShape && e.target === stageRef.current) {
-        setEditingShapeId(null); // Clicked outside, exit edit mode
+        setEditingShapeId(null); 
+        setLiveEditingShape(null);
       }
     }
 
@@ -264,6 +265,7 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
       if (clickedOnEmpty) {
         setSelectedShapeIds([]);
         setEditingShapeId(null); 
+        setLiveEditingShape(null);
         setSelectionRect({ x: pos.x, y: pos.y, width: 0, height: 0, visible: true });
         return;
       }
@@ -286,15 +288,18 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
             setSelectedShapeIds([shapeId]);
             if (editingShapeId && editingShapeId !== shapeId) {
                 setEditingShapeId(null);
+                setLiveEditingShape(null);
             }
         } else { 
             setSelectedShapeIds([]);
             setEditingShapeId(null);
+            setLiveEditingShape(null);
         }
       }
     } else if (['rectangle', 'ellipse', 'line', 'text'].includes(currentTool)) {
       setIsDrawing(true);
       setEditingShapeId(null); 
+      setLiveEditingShape(null);
       const id = uuidv4();
       let initialShape: Shape;
 
@@ -310,7 +315,7 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
           break;
         case 'text':
             const defaultText = prompt("Enter text:", "Hello") || "Text";
-            initialShape = { id, type: 'text', text: defaultText, x: pos.x, y: pos.y, fontSize: 20, fontFamily: 'Arial', fill: defaultStrokeColor, draggable: true };
+            initialShape = { id, type: 'text', text: defaultText, x: pos.x, y: pos.y, fontSize: 20, fontFamily: 'Arial', fill: defaultStrokeColor, draggable: true, width: 0, height: 0 }; // Initial width/height for text
             onAddShape(initialShape);
             setIsDrawing(false); 
             setCurrentDrawingShape(null);
@@ -321,15 +326,16 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
       onAddShape(initialShape); 
     } else if (currentTool === 'polyline' || currentTool === 'polygon') {
         setEditingShapeId(null); 
+        setLiveEditingShape(null);
         if (!isDrawing) { 
             setIsDrawing(true);
             const id = uuidv4();
             const initialPolyShape: PolylineShape | PolygonShape = {
                 id,
                 type: currentTool,
-                x: pos.x, // Origin is the first snapped point
+                x: pos.x, 
                 y: pos.y,
-                points: [0, 0, 0, 0], // Start with [origin, live_point_relative_to_origin]
+                points: [0, 0, 0, 0], 
                 stroke: defaultStrokeColor,
                 strokeWidth: defaultStrokeWidth,
                 dash: dashArray,
@@ -341,17 +347,17 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
             onAddShape(initialPolyShape);
         } else { 
             if (currentDrawingShape && (currentDrawingShape.type === 'polyline' || currentDrawingShape.type === 'polygon')) {
-                const relativeX = pos.x - currentDrawingShape.x; // Snapped pos relative to shape origin
+                const relativeX = pos.x - currentDrawingShape.x;
                 const relativeY = pos.y - currentDrawingShape.y;
                 
                 const existingPoints = [...currentDrawingShape.points];
-                existingPoints[existingPoints.length - 2] = relativeX; // Update fixed point
+                existingPoints[existingPoints.length - 2] = relativeX; 
                 existingPoints[existingPoints.length - 1] = relativeY;
                 
-                existingPoints.push(relativeX, relativeY); // Add new live point
+                existingPoints.push(relativeX, relativeY); 
 
                 const updatedShape = { ...currentDrawingShape, points: existingPoints };
-                onUpdateSingleShape(updatedShape); // Update for visual feedback
+                onUpdateSingleShape(updatedShape); 
                 setCurrentDrawingShape(updatedShape);
             }
         }
@@ -359,7 +365,7 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
   };
 
   const handleMouseMove = (e: KonvaEventObject<MouseEvent>) => {
-    const pos = getPointerPosition(); // Already world-snapped if applicable
+    const pos = getPointerPosition(); 
 
     if (currentTool === 'select' && selectionRect?.visible && !isDraggingVertex ) {
        setSelectionRect(prev => prev ? {...prev, width: pos.x - prev.x, height: pos.y - prev.y} : null);
@@ -388,12 +394,11 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
       case 'polyline':
       case 'polygon':
         const livePoints = [...updatedShape.points];
-        livePoints[livePoints.length-2] = pos.x - updatedShape.x; // Relative to shape origin
+        livePoints[livePoints.length-2] = pos.x - updatedShape.x; 
         livePoints[livePoints.length-1] = pos.y - updatedShape.y;
         updatedShape.points = livePoints;
         break;
     }
-    // Live update on Konva node (not through React state for performance during draw)
     const existingKonvaShape = layerRef.current?.findOne('#' + updatedShape.id);
     if (existingKonvaShape) {
         if (updatedShape.type === 'ellipse') {
@@ -409,11 +414,11 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
         }
         existingKonvaShape.getLayer()?.batchDraw();
     }
-    setCurrentDrawingShape(updatedShape); // Keep React state in sync for final mouseUp
+    setCurrentDrawingShape(updatedShape); 
   };
 
   const handleMouseUp = (e: KonvaEventObject<MouseEvent>) => {
-    if (isDraggingVertex) { // If dragging a vertex, this is handled by handleEndpointDragEnd
+    if (isDraggingVertex) { 
         return;
     }
 
@@ -429,7 +434,10 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
             }
         });
         setSelectedShapeIds(newlySelectedIds);
-        if (newlySelectedIds.length > 0) setEditingShapeId(null); 
+        if (newlySelectedIds.length > 0) {
+            setEditingShapeId(null); 
+            setLiveEditingShape(null);
+        }
         return;
     }
 
@@ -461,7 +469,7 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
             const [x1,y1,x2, y2] = [points[0], points[1], points[2], points[3]]; 
             const minLength = isSnapToGridActive ? gridSize / 2 : 5;
             if (Math.sqrt(Math.pow(x2-x1,2) + Math.pow(y2-y1,2)) < minLength) { 
-                onUpdateShapes(shapes.filter(s => s.id !== finalShape.id)); // Delete tiny lines
+                onUpdateShapes(shapes.filter(s => s.id !== finalShape.id)); 
             } else {
                  onUpdateSingleShape(finalShape); 
             }
@@ -487,13 +495,25 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
 
         if (shape && (shape.type === 'line' || shape.type === 'polyline' || shape.type === 'polygon')) {
             if (selectedShapeIds.length === 1 && selectedShapeIds[0] === shapeId) {
-                setEditingShapeId(prevId => prevId === shapeId ? null : shapeId); 
+                setEditingShapeId(prevId => {
+                    const newEditingId = prevId === shapeId ? null : shapeId;
+                    if (newEditingId) {
+                        const shapeToEdit = shapes.find(s => s.id === newEditingId);
+                        setLiveEditingShape(shapeToEdit ? JSON.parse(JSON.stringify(shapeToEdit)) : null);
+                    } else {
+                        setLiveEditingShape(null);
+                    }
+                    return newEditingId;
+                });
             } else {
                  setSelectedShapeIds([shapeId]); 
                  setEditingShapeId(shapeId); 
+                 const shapeToEdit = shapes.find(s => s.id === shapeId);
+                 setLiveEditingShape(shapeToEdit ? JSON.parse(JSON.stringify(shapeToEdit)) : null);
             }
         } else {
             setEditingShapeId(null); 
+            setLiveEditingShape(null);
         }
     }
   };
@@ -501,24 +521,30 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
   const handleDragEnd = (e: KonvaEventObject<DragEvent>, id: string) => {
     const node = e.target;
     const originalShape = shapes.find(s => s.id === id);
+
     if (originalShape && originalShape.draggable !== false && !isDraggingVertex ) { 
         let newX = node.x();
         let newY = node.y();
 
-        if (isSnapToGridActive) {
-            if (originalShape.type === 'ellipse' || originalShape.type === 'group') { 
-                const shapeWidth = (node.width() * node.scaleX());
-                const shapeHeight = (node.height() * node.scaleY());
-                const currentCenter = { x: newX + shapeWidth / 2, y: newY + shapeHeight / 2 };
-                const snappedCenter = snapPoint(currentCenter, gridSize);
-                newX = snappedCenter.x - shapeWidth / 2;
-                newY = snappedCenter.y - shapeHeight / 2;
-            } else { 
-                const snappedOrigin = snapPoint({ x: newX, y: newY }, gridSize);
-                newX = snappedOrigin.x;
-                newY = snappedOrigin.y;
-            }
+        if (isSnapToGridActive && layerRef.current) {
+            // Get the current bounding box's top-left in world coordinates
+            const currentBBox = node.getClientRect({ relativeTo: layerRef.current });
+            const currentBBoxTopLeftX = currentBBox.x;
+            const currentBBoxTopLeftY = currentBBox.y;
+
+            // Snap these coordinates
+            const snappedBBoxTopLeftX = snapValue(currentBBoxTopLeftX, gridSize);
+            const snappedBBoxTopLeftY = snapValue(currentBBoxTopLeftY, gridSize);
+
+            // Calculate the required adjustment to the shape's origin
+            const deltaX = snappedBBoxTopLeftX - currentBBoxTopLeftX;
+            const deltaY = snappedBBoxTopLeftY - currentBBoxTopLeftY;
+
+            // Calculate the new origin for the shape
+            newX = node.x() + deltaX;
+            newY = node.y() + deltaY;
         }
+        
         node.position({ x: newX, y: newY }); 
         const updatedShape: Shape = {
             ...(originalShape as Shape), 
@@ -527,7 +553,6 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
         };
         onUpdateSingleShape(updatedShape);
     }
-    // isDraggingVertex is reset in handleEndpointDragEnd
   };
 
   const handleTransformEnd = (e: KonvaEventObject<Event>) => {
@@ -550,26 +575,35 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
         newHeight = transformedNode.height() * newScaleY; 
 
         if (isSnapToGridActive) {
-            const snappedOriginOrCenter = originalShape.type === 'ellipse' 
-                ? snapPoint({ x: newX + newWidth / 2, y: newY + newHeight / 2 }, gridSize) // Center for ellipse
-                : snapPoint({ x: newX, y: newY }, gridSize); // Top-left for rectangle
+            const originXToSnap = originalShape.type === 'ellipse' ? newX - newWidth / 2 : newX;
+            const originYToSnap = originalShape.type === 'ellipse' ? newY - newHeight / 2 : newY;
+
+            const snappedOriginX = snapValue(originXToSnap, gridSize);
+            const snappedOriginY = snapValue(originYToSnap, gridSize);
             
-            if(originalShape.type === 'ellipse'){
-                newX = snappedOriginOrCenter.x - newWidth / 2;
-                newY = snappedOriginOrCenter.y - newHeight / 2;
-            } else { // Rectangle
-                newX = snappedOriginOrCenter.x;
-                newY = snappedOriginOrCenter.y;
-            }
             newWidth = Math.max(gridSize, snapValue(newWidth, gridSize));
             newHeight = Math.max(gridSize, snapValue(newHeight, gridSize));
+
+            if(originalShape.type === 'ellipse'){
+                newX = snappedOriginX + newWidth / 2;
+                newY = snappedOriginY + newHeight / 2;
+            } else { 
+                newX = snappedOriginX;
+                newY = snappedOriginY;
+            }
         }
-        newScaleX = 1; // Reset scale as dimensions now incorporate it
+        newScaleX = 1; 
         newScaleY = 1;
       } else if (isSnapToGridActive && (originalShape.type === 'group' || originalShape.type === 'text' || originalShape.type === 'line' || originalShape.type === 'polyline' || originalShape.type === 'polygon')) { 
-        const snappedOrigin = snapPoint({ x: newX, y: newY }, gridSize);
-        newX = snappedOrigin.x;
-        newY = snappedOrigin.y;
+        if (layerRef.current) {
+            const currentBBox = transformedNode.getClientRect({ relativeTo: layerRef.current });
+            const snappedBBoxTopLeftX = snapValue(currentBBox.x, gridSize);
+            const snappedBBoxTopLeftY = snapValue(currentBBox.y, gridSize);
+            const deltaX = snappedBBoxTopLeftX - currentBBox.x;
+            const deltaY = snappedBBoxTopLeftY - currentBBox.y;
+            newX = transformedNode.x() + deltaX;
+            newY = transformedNode.y() + deltaY;
+        }
       }
       
       transformedNode.x(newX);
@@ -596,21 +630,21 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
   };
   
   const handleEndpointDragStart = (e: KonvaEventObject<DragEvent>, shapeId: string) => {
-    e.cancelBubble = true; // Prevent stage drag, selection, etc.
+    e.cancelBubble = true; 
     setIsDraggingVertex(true);
     const stage = stageRef.current;
     if (stage) stage.container().style.cursor = 'grabbing';
     
     const shapeToEdit = shapes.find(s => s.id === shapeId);
     if (shapeToEdit && (shapeToEdit.type === 'line' || shapeToEdit.type === 'polyline' || shapeToEdit.type === 'polygon')) {
-        setLiveEditingShape(JSON.parse(JSON.stringify(shapeToEdit))); // Deep clone for live edit
+        setLiveEditingShape(JSON.parse(JSON.stringify(shapeToEdit))); 
     }
   };
 
   const handleEndpointDragMove = (
-      e: KonvaEventObject<DragEvent>, // This 'e' is for the handle
+      e: KonvaEventObject<DragEvent>,
       shapeId: string,
-      pointIndex: number // Index in the shape's points array (e.g., 0 for x1, 1 for y1)
+      pointIndex: number 
   ) => {
       const stage = e.target.getStage();
       if (!stage || !liveEditingShape || liveEditingShape.id !== shapeId) return;
@@ -626,7 +660,7 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
           snappedWorldPoint = snapPoint({ x: worldX, y: worldY }, gridSize);
       }
       
-      e.target.x(snappedWorldPoint.x); // Move the handle visually
+      e.target.x(snappedWorldPoint.x); 
       e.target.y(snappedWorldPoint.y);
 
       const konvaShapeNode = layerRef.current?.findOne('#' + shapeId) as Konva.Line | undefined;
@@ -642,13 +676,12 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
           newPoints[pointIndex + 1] = localSnappedPoint.y;
           return { ...prev, points: newPoints };
       });
-      // Konva node will be updated by React re-render due to liveEditingShape change
   };
 
   const handleEndpointDragEnd = (
       e: KonvaEventObject<DragEvent>, 
       shapeId: string,
-      pointIndex: number // Not directly used here, but good for consistency
+      pointIndex: number 
   ) => {
       setIsDraggingVertex(false);
       const stage = stageRef.current;
@@ -658,7 +691,14 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
           setLiveEditingShape(null);
           return;
       }
-      // liveEditingShape contains the final points from the drag
+
+      const konvaShapeNode = layerRef.current?.findOne('#' + shapeId) as Konva.Line | undefined;
+      if (!konvaShapeNode) {
+        setLiveEditingShape(null);
+        return;
+      }
+      
+      // Use the final points from liveEditingShape, which were derived from snapped world coords
       onUpdateSingleShape(liveEditingShape);
       setLiveEditingShape(null);
 
@@ -706,41 +746,41 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
   };
 
   const renderShape = (shape: Shape): React.ReactNode => {
-    // Use liveEditingShape if it's the one being modified
-    const shapeToRender = (liveEditingShape && liveEditingShape.id === shape.id) ? liveEditingShape : shape;
+    const shapeForHandles = (liveEditingShape && liveEditingShape.id === shape.id && editingShapeId === shape.id) 
+                                    ? liveEditingShape 
+                                    : shape;
 
     const currentStageScale = viewTransform.scale;
-    const baseHitStrokeWidth = shapeToRender.strokeWidth || defaultStrokeWidth;
-    // Ensure hitStrokeWidth is reasonable even for very thin lines or high zoom
-    const hitStrokeWidth = Math.max(10 / currentStageScale, (baseHitStrokeWidth + 10) / currentStageScale);
+    const baseHitStrokeWidth = shapeForHandles.strokeWidth || defaultStrokeWidth;
+    const hitStrokeWidth = Math.max(5 / currentStageScale, (baseHitStrokeWidth + 10) / currentStageScale);
 
 
     const baseProps: any = {
-      key: shapeToRender.id,
-      id: shapeToRender.id,
-      x: shapeToRender.x,
-      y: shapeToRender.y,
-      rotation: shapeToRender.rotation || 0,
-      scaleX: shapeToRender.scaleX || 1,
-      scaleY: shapeToRender.scaleY || 1,
-      draggable: currentTool === 'select' && (shapeToRender.draggable !== false) && !isDraggingVertex && editingShapeId !== shapeToRender.id && !(selectedShapeIds.includes(shapeToRender.id) && selectedShapeIds.length > 1 && editingShapeId),
-      onDragEnd: (evt: KonvaEventObject<DragEvent>) => handleDragEnd(evt, shapeToRender.id),
+      key: shapeForHandles.id,
+      id: shapeForHandles.id,
+      x: shapeForHandles.x,
+      y: shapeForHandles.y,
+      rotation: shapeForHandles.rotation || 0,
+      scaleX: shapeForHandles.scaleX || 1,
+      scaleY: shapeForHandles.scaleY || 1,
+      draggable: currentTool === 'select' && (shapeForHandles.draggable !== false) && !isDraggingVertex && editingShapeId !== shapeForHandles.id && !(selectedShapeIds.includes(shapeForHandles.id) && selectedShapeIds.length > 1 && editingShapeId),
+      onDragEnd: (evt: KonvaEventObject<DragEvent>) => handleDragEnd(evt, shapeForHandles.id),
       onTransformEnd: handleTransformEnd,
-      opacity: shapeToRender.opacity ?? 1,
+      opacity: shapeForHandles.opacity ?? 1,
       strokeScaleEnabled: false, 
       name: 'shape-draggable', 
       perfectDrawEnabled: false, 
     };
 
-    switch (shapeToRender.type) {
+    switch (shapeForHandles.type) {
       case 'rectangle':
-        const rect = shapeToRender as RectangleShape;
+        const rect = shapeForHandles as RectangleShape;
         return <Rect {...baseProps} width={rect.width} height={rect.height} fill={rect.fill} stroke={rect.stroke} strokeWidth={rect.strokeWidth} dash={rect.dash} hitStrokeWidth={hitStrokeWidth} />;
       case 'ellipse':
-        const ellipse = shapeToRender as EllipseShape;
+        const ellipse = shapeForHandles as EllipseShape;
         return <Ellipse {...baseProps} radiusX={ellipse.width / 2} radiusY={ellipse.height / 2} fill={ellipse.fill} stroke={ellipse.stroke} strokeWidth={ellipse.strokeWidth} dash={ellipse.dash} hitStrokeWidth={hitStrokeWidth} />;
       case 'line':
-        const line = shapeToRender as LineShape;
+        const line = shapeForHandles as LineShape;
         return (
             <KonvaLine 
                 {...baseProps} 
@@ -749,15 +789,14 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
                 strokeWidth={line.strokeWidth} 
                 dash={line.dash} 
                 hitStrokeWidth={hitStrokeWidth}
-                onDragMove={(e: KonvaEventObject<DragEvent>) => { // For moving whole line + its handles
+                onDragMove={(e: KonvaEventObject<DragEvent>) => { 
                     if (selectedShapeIds.length === 1 && selectedShapeIds[0] === line.id && !isDraggingVertex) {
                         const lineNode = e.target as Konva.Line;
-                        const absPos = lineNode.absolutePosition(); // This is world coords
+                        const absPos = lineNode.absolutePosition();
                         const absRot = lineNode.getAbsoluteRotation();
                         const absScale = lineNode.getAbsoluteScale();
 
                         const transform = new Konva.Transform();
-                        //Handles are children of layer, their pos is world. So, we need shape's world transform
                         transform.translate(absPos.x, absPos.y); 
                         transform.rotate(Konva.getAngle(absRot));
                         transform.scale(absScale.x, absScale.y);
@@ -777,7 +816,7 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
             />
         );
       case 'polyline':
-        const polyline = shapeToRender as PolylineShape;
+        const polyline = shapeForHandles as PolylineShape;
         return <KonvaLine {...baseProps} 
                           points={polyline.points} 
                           stroke={polyline.stroke} 
@@ -802,7 +841,7 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
                           }}
                 />;
       case 'polygon':
-        const polygon = shapeToRender as PolygonShape;
+        const polygon = shapeForHandles as PolygonShape;
         return <KonvaLine {...baseProps} 
                           points={polygon.points} 
                           stroke={polygon.stroke} 
@@ -828,25 +867,30 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
                           }}
                 />;
       case 'text':
-        const text = shapeToRender as TextShape;
+        const text = shapeForHandles as TextShape;
         return <KonvaText {...baseProps} text={text.text} fontSize={text.fontSize} fontFamily={text.fontFamily} fill={text.fill} width={text.width} height={text.height} align={text.align} verticalAlign={text.verticalAlign} padding={text.padding} lineHeight={text.lineHeight} wrap={text.wrap} ellipsis={text.ellipsis} fontStyle={text.fontStyle} textDecoration={text.textDecoration} hitStrokeWidth={hitStrokeWidth}/>;
       case 'group':
-        const group = shapeToRender as GroupShape;
+        const group = shapeForHandles as GroupShape;
         const clipFunc = (group.width && group.height) ? (ctx: Konva.Context) => {
             ctx.rect(0, 0, group.width!, group.height!); 
         } : undefined;
 
         return (
             <KonvaGroup {...baseProps} width={group.width} height={group.height} clipFunc={clipFunc}>
-                {group.children.map(child => renderShape(child))}
+                {group.children.map(childId => {
+                     const childShape = shapes.find(s => s.id === childId) || 
+                                     (liveEditingShape?.type === 'group' && (liveEditingShape as GroupShape).children.find(c => c.id === childId)) ||
+                                     (shapeForHandles?.type === 'group' && (shapeForHandles as GroupShape).children.find(c => c.id === childId));
+                     return childShape ? renderShape(childShape) : null;
+                })}
             </KonvaGroup>
         );
       default:
+        const _exhaustiveCheck: never = shapeForHandles;
         return null;
     }
   };
 
-  
   const handleRadius = Math.max(3, 6 / viewTransform.scale); 
   const handleStrokeWidth = Math.max(0.5, 1 / viewTransform.scale); 
 
@@ -932,22 +976,22 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
             enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right', 'top-center', 'bottom-center']}
             strokeScaleEnabled={false} 
           />
-          {/* Render Handles for selected lines or editing poly/polygons */}
           {selectedShapeIds.length === 1 && (() => {
             const selectedShapeModel = shapes.find(s => s.id === selectedShapeIds[0]);
             if (!selectedShapeModel) return null;
 
             const konvaNode = layerRef.current?.findOne('#' + selectedShapeModel.id);
             if (!konvaNode) return null;
-
-            const shapeForHandles = (liveEditingShape && liveEditingShape.id === selectedShapeModel.id && editingShapeId === selectedShapeModel.id) 
+            
+            const shapeToUseForHandles = (liveEditingShape && liveEditingShape.id === selectedShapeModel.id && editingShapeId === selectedShapeModel.id) 
                                     ? liveEditingShape 
                                     : selectedShapeModel;
             
             const currentAbsoluteTransform = konvaNode.getAbsoluteTransform();
 
-            if (shapeForHandles.type === 'line') {
-              const line = shapeForHandles as LineShape;
+            if (shapeToUseForHandles.type === 'line') {
+              const line = shapeToUseForHandles as LineShape;
+              if (line.points.length < 4) return null;
               const p1_world = currentAbsoluteTransform.point({x: line.points[0], y: line.points[1]});
               const p2_world = currentAbsoluteTransform.point({x: line.points[2], y: line.points[3]});
               
@@ -986,12 +1030,13 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
                 </React.Fragment>
               );
             }
-            else if ((shapeForHandles.type === 'polyline' || shapeForHandles.type === 'polygon') && editingShapeId === shapeForHandles.id) {
-                const polyShape = shapeForHandles as PolylineShape | PolygonShape;
+            else if ((shapeToUseForHandles.type === 'polyline' || shapeToUseForHandles.type === 'polygon') && editingShapeId === shapeToUseForHandles.id) {
+                const polyShape = shapeToUseForHandles as PolylineShape | PolygonShape;
                 return (
                     <React.Fragment>
                         {polyShape.points.map((_, i) => {
-                            if (i % 2 !== 0) return null; // Only process x coordinates
+                            if (i % 2 !== 0) return null; 
+                            if (i + 1 >= polyShape.points.length) return null;
                             const p_world = currentAbsoluteTransform.point({x: polyShape.points[i], y: polyShape.points[i+1]});
                             return (
                                 <Circle
@@ -1053,4 +1098,3 @@ const KonvaCanvas: React.FC<KonvaCanvasProps> = ({
 };
 
 export default KonvaCanvas;
-
