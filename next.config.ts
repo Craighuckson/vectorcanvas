@@ -1,5 +1,6 @@
 
 import type { NextConfig } from 'next';
+import path from 'path'; // Added for resolving paths
 
 const nextConfig: NextConfig = {
   /* config options here */
@@ -31,6 +32,18 @@ const nextConfig: NextConfig = {
       // Treat 'canvas' as an external module on the server.
       config.externals.push('canvas'); 
     }
+
+    // Ensure React and ReactDOM resolve to the project's versions
+    // This helps prevent issues with multiple React instances.
+    if (!config.resolve) {
+      config.resolve = {};
+    }
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}), // Preserve existing aliases
+      react: path.resolve('./node_modules/react'),
+      'react-dom': path.resolve('./node_modules/react-dom'),
+    };
+    
     return config;
   },
 };
