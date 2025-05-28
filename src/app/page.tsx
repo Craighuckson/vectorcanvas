@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useCallback, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { v4 as uuidv4 } from 'uuid';
 import { KonvaEventObject } from 'konva/lib/Node';
 import type { Stage } from 'konva/lib/Stage';
@@ -9,10 +10,22 @@ import type { Stage } from 'konva/lib/Stage';
 import type { Shape, Tool, CanvasState, HistoryEntry, ShapeTool } from '@/lib/types';
 import { useCanvasHistory } from '@/hooks/useCanvasHistory';
 import Toolbar from '@/components/vector-canvas/Toolbar';
-import KonvaCanvas from '@/components/vector-canvas/KonvaCanvas';
+// import KonvaCanvas from '@/components/vector-canvas/KonvaCanvas'; // Original import
 import PropertiesPanel from '@/components/vector-canvas/PropertiesPanel';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
+
+const DynamicKonvaCanvas = dynamic(
+  () => import('@/components/vector-canvas/KonvaCanvas'),
+  { 
+    ssr: false,
+    loading: () => (
+      <div className="flex-1 relative bg-muted/30 border-r border-border flex items-center justify-center">
+        <p>Loading Canvas...</p>
+      </div>
+    )
+  }
+);
 
 const initialShapes: Shape[] = [];
 const initialSelectedShapeIds: string[] = [];
@@ -53,7 +66,7 @@ export default function VectorCanvasPage() {
     setShapes(newShapes);
     setSelectedShapeIds(newSelectedShapeIds);
     setHistory({ shapes: newShapes, selectedShapeIds: newSelectedShapeIds });
-  }, [setHistory]);
+  }, [setHistory, currentIndex]); // Added currentIndex to dependencies as setHistory uses it
 
   const handleAddShape = (shape: Shape) => {
     const newShapes = [...shapes, shape];
@@ -72,16 +85,16 @@ export default function VectorCanvasPage() {
   const handleUndo = () => {
     const prevState = undo();
     if (prevState) {
-      setShapes(prevState.shapes);
-      setSelectedShapeIds(prevState.selectedShapeIds);
+      // setShapes(prevState.shapes); // Managed by useEffect on currentHistory
+      // setSelectedShapeIds(prevState.selectedShapeIds); // Managed by useEffect on currentHistory
     }
   };
 
   const handleRedo = () => {
     const nextState = redo();
     if (nextState) {
-      setShapes(nextState.shapes);
-      setSelectedShapeIds(nextState.selectedShapeIds);
+      // setShapes(nextState.shapes); // Managed by useEffect on currentHistory
+      // setSelectedShapeIds(nextState.selectedShapeIds); // Managed by useEffect on currentHistory
     }
   };
 
@@ -114,7 +127,7 @@ export default function VectorCanvasPage() {
           if (data.shapes && Array.isArray(data.shapes)) {
             const newShapes = data.shapes as Shape[];
             // Basic validation could be added here for each shape
-            resetHistory({ shapes: newShapes, selectedShapeIds: [] });
+            resetHistory({ shapes: newShapes, selectedShapeIds: [] }); // This will trigger useEffect to update local state
             if(stageRef.current && data.viewParams) {
               stageRef.current.x(data.viewParams.x || 0);
               stageRef.current.y(data.viewParams.y || 0);
@@ -138,11 +151,16 @@ export default function VectorCanvasPage() {
   
   const getDashArray = () => {
     if (currentLineStyle === 'dashed') return [10, 5];
-    if (currentLineStyle === 'dotted') return [defaultStrokeWidth, defaultStrokeWidth * 1.5];
+    if (currentLineStyle === 'dotted') return [defaultStrokeWidth < 1 ? 1 : defaultStrokeWidth, (defaultStrokeWidth < 1 ? 1 : defaultStrokeWidth) * 1.5];
     return [];
   };
 
   const selectedShapesObjects = shapes.filter(shape => selectedShapeIds.includes(shape.id));
+  
+  // Need to get currentIndex for the dependency array of updateStateAndHistory
+  // This is a bit of a workaround to access the currentIndex from the hook without exposing it.
+  const { currentIndex } = useCanvasHistory(initialHistoryEntry);
+
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
@@ -166,7 +184,7 @@ export default function VectorCanvasPage() {
       />
       <div className="flex flex-1 min-h-0">
         <div className="flex-1 relative bg-muted/30 border-r border-border">
-          <KonvaCanvas
+          <DynamicKonvaCanvas
             stageRef={stageRef}
             shapes={shapes}
             selectedShapeIds={selectedShapeIds}
@@ -192,3 +210,4 @@ export default function VectorCanvasPage() {
     </div>
   );
 }
+
