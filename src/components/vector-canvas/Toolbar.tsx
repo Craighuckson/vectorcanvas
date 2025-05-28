@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { KeyboardShortcutsHelp } from './KeyboardShortcutsHelp'; // Import the new component
 import {
   MousePointer2,
   Square,
@@ -60,7 +61,7 @@ interface ToolbarProps {
   onGroup: () => void;
   onUngroup: () => void;
   selectedShapesCount: number;
-  isSingleGroupSelected: boolean; // New prop
+  isSingleGroupSelected: boolean;
   canvasWidth: number;
   setCanvasWidth: (width: number) => void;
   canvasHeight: number;
@@ -102,7 +103,7 @@ export default function Toolbar({
   onGroup,
   onUngroup,
   selectedShapesCount,
-  isSingleGroupSelected, // Use new prop
+  isSingleGroupSelected,
   canvasWidth,
   setCanvasWidth,
   canvasHeight,
@@ -402,7 +403,9 @@ export default function Toolbar({
           </TooltipTrigger>
           <TooltipContent><p>Save as PNG</p></TooltipContent>
         </Tooltip>
-
+        
+        <Separator orientation="vertical" className="h-8 mx-1" />
+        <KeyboardShortcutsHelp /> 
       </header>
     </TooltipProvider>
   );
