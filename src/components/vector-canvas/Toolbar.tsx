@@ -10,7 +10,8 @@ import { Label } from '@/components/ui/label';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { KeyboardShortcutsHelp } from './KeyboardShortcutsHelp'; // Import the new component
+import { KeyboardShortcutsHelp } from './KeyboardShortcutsHelp';
+import { Switch } from '@/components/ui/switch'; // Added for Snap to Grid
 import {
   MousePointer2,
   Square,
@@ -20,6 +21,7 @@ import {
   Hexagon, // Polygon
   Type as TextIcon, // Text
   Stamp as StampIcon,
+  Grid as GridIcon, // Added for Snap to Grid
   Group as GroupIcon,
   Ungroup as UngroupIcon,
   Undo2,
@@ -51,6 +53,10 @@ interface ToolbarProps {
   setDefaultStrokeWidth: (width: number) => void;
   currentLineStyle: 'solid' | 'dashed' | 'dotted';
   setCurrentLineStyle: (style: 'solid' | 'dashed' | 'dotted') => void;
+  isSnapToGridActive: boolean; // New prop
+  setIsSnapToGridActive: (active: boolean) => void; // New prop
+  gridSize: number; // New prop
+  setGridSize: (size: number) => void; // New prop
   onUndo: () => void;
   canUndo: boolean;
   onRedo: () => void;
@@ -93,6 +99,10 @@ export default function Toolbar({
   setDefaultStrokeWidth,
   currentLineStyle,
   setCurrentLineStyle,
+  isSnapToGridActive,
+  setIsSnapToGridActive,
+  gridSize,
+  setGridSize,
   onUndo,
   canUndo,
   onRedo,
@@ -337,6 +347,43 @@ export default function Toolbar({
 
         <Separator orientation="vertical" className="h-8 mx-1" />
 
+        <Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="Grid Settings">
+                  <GridIcon className={`h-5 w-5 ${isSnapToGridActive ? 'text-primary' : ''}`} />
+                </Button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent><p>Grid & Snapping</p></TooltipContent>
+          </Tooltip>
+          <PopoverContent className="w-64 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="snapToGridSwitch" className="text-sm">Snap to Grid</Label>
+              <Switch
+                id="snapToGridSwitch"
+                checked={isSnapToGridActive}
+                onCheckedChange={setIsSnapToGridActive}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="gridSizeInput" className="text-xs">Grid Size (px)</Label>
+              <Input
+                id="gridSizeInput"
+                type="number"
+                value={gridSize}
+                onChange={(e) => setGridSize(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className="h-8 text-xs"
+                min="1"
+                disabled={!isSnapToGridActive}
+              />
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        <Separator orientation="vertical" className="h-8 mx-1" />
+
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -410,3 +457,6 @@ export default function Toolbar({
     </TooltipProvider>
   );
 }
+
+
+    
