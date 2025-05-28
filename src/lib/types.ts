@@ -1,25 +1,30 @@
 
-export type ShapeTool = 'rectangle' | 'ellipse' | 'line'; // 'polyline' | 'polygon' | 'text' can be added
-export type Tool = 'select' | ShapeTool | 'stamp';
+export type ShapeType = 'rectangle' | 'ellipse' | 'line' | 'polyline' | 'polygon' | 'text' | 'group';
+export type ShapeTool = 'rectangle' | 'ellipse' | 'line' | 'polyline' | 'polygon' | 'text';
+export type ActionTool = 'select' | 'group' | 'ungroup' | 'stamp';
+export type Tool = ShapeTool | ActionTool;
 
-interface BaseShapeStyle {
+export interface BaseShapeStyle {
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
   dash?: number[]; // For Konva: [dash, gap, dash, gap, ...]
+  opacity?: number;
 }
 
 export interface BaseShape extends BaseShapeStyle {
   id: string;
-  type: ShapeTool; // For now, only ShapeTool types. Could be expanded.
+  type: ShapeType;
   x: number;
   y: number;
-  width?: number; // Optional for line, mandatory for others
-  height?: number; // Optional for line, mandatory for others
+  width?: number;
+  height?: number;
   rotation?: number;
   scaleX?: number;
   scaleY?: number;
-  points?: number[]; // For line: [x1, y1, x2, y2]. For polyline/polygon: [x1, y1, x2, y2, ...]
+  draggable?: boolean; // Individual shape draggable state
+  locked?: boolean;
+  name?: string; // For easier identification, esp. for groups
 }
 
 export interface RectangleShape extends BaseShape {
@@ -36,10 +41,51 @@ export interface EllipseShape extends BaseShape {
 
 export interface LineShape extends BaseShape {
   type: 'line';
-  points: number[]; // [x1, y1, x2, y2]
+  points: number[]; // [x1, y1, x2, y2] relative to shape x,y (which is 0,0 for lines usually)
 }
 
-export type Shape = RectangleShape | EllipseShape | LineShape; // Union of all specific shape types
+export interface PolylineShape extends BaseShape {
+  type: 'polyline';
+  points: number[]; // [x1, y1, x2, y2, ..., xn, yn] relative to shape x,y
+}
+
+export interface PolygonShape extends BaseShape {
+  type: 'polygon';
+  points: number[]; // [x1, y1, x2, y2, ..., xn, yn] relative to shape x,y (closed path)
+  closed?: boolean; // Konva specific property for polygons
+}
+
+export interface TextShape extends BaseShape {
+  type: 'text';
+  text: string;
+  fontSize?: number;
+  fontFamily?: string;
+  fontStyle?: string; // 'normal', 'bold', 'italic', 'bold italic'
+  textDecoration?: string; // 'underline', 'line-through'
+  align?: string; // 'left', 'center', 'right'
+  verticalAlign?: string; // 'top', 'middle', 'bottom'
+  padding?: number;
+  lineHeight?: number;
+  letterSpacing?: number;
+  wrap?: string; // 'word', 'char', 'none'
+  ellipsis?: boolean;
+  // width and height for text are often auto-calculated by Konva or can be set for bounding box
+}
+
+export interface GroupShape extends BaseShape {
+  type: 'group';
+  children: Shape[]; // Nested shapes or other groups
+  // Group x,y, width, height are derived from children or can be set for clipping
+}
+
+export type Shape =
+  | RectangleShape
+  | EllipseShape
+  | LineShape
+  | PolylineShape
+  | PolygonShape
+  | TextShape
+  | GroupShape;
 
 export interface CanvasState {
   shapes: Shape[];
@@ -49,9 +95,18 @@ export interface CanvasState {
   defaultStrokeColor: string;
   defaultStrokeWidth: number;
   currentLineStyle: 'solid' | 'dashed' | 'dotted';
+  // Add other global canvas settings here if needed
 }
 
 export interface HistoryEntry {
   shapes: Shape[];
   selectedShapeIds: string[];
+  // Could also store view parameters like zoom/pan if needed for history
+}
+
+export interface Template {
+  id: string;
+  name: string;
+  shapes: Shape[]; // The shapes that make up the template/stamp
+  preview?: string; // Optional: base64 encoded image for preview
 }

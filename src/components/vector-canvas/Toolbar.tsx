@@ -2,7 +2,7 @@
 "use client";
 
 import React from 'react';
-import type { Tool, ShapeTool } from '@/lib/types';
+import type { Tool } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Input } from '@/components/ui/input';
@@ -12,17 +12,21 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/comp
 import {
   MousePointer2,
   Square,
-  Circle as EllipseIcon, // Renamed to avoid conflict
-  Minus,
+  Circle as EllipseIcon,
+  Minus, // Line
+  Spline, // Polyline
+  Hexagon, // Polygon
+  Type as TextIcon, // Text
+  Stamp as StampIcon,
+  Group as GroupIcon,
+  Ungroup as UngroupIcon,
   Undo2,
   Redo2,
-  Palette,
-  Download,
-  Upload,
-  Pipette,
-  ZoomIn, 
-  ZoomOut,
-  GripVertical
+  Palette, // Stroke Color
+  Pipette, // Fill Color
+  Download, // Export JSON
+  Upload, // Import JSON
+  ImageDown, // Save as PNG
 } from 'lucide-react';
 import {
   Select,
@@ -47,15 +51,26 @@ interface ToolbarProps {
   canUndo: boolean;
   onRedo: () => void;
   canRedo: boolean;
-  onExport: () => void;
-  onImport: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onExportJson: () => void;
+  onImportJson: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onSaveAsPng: () => void;
+  onGroup: () => void;
+  onUngroup: () => void;
+  // onSaveAsTemplate: () => void;
+  // onLoadTemplate: (templateId: string) => void;
+  // templates: Template[]; // Assuming Template is defined in types
+  selectedShapesCount: number;
 }
 
-const tools: { name: Tool; icon: React.ElementType; label: string }[] = [
-  { name: 'select', icon: MousePointer2, label: 'Select' },
-  { name: 'rectangle', icon: Square, label: 'Rectangle' },
-  { name: 'ellipse', icon: EllipseIcon, label: 'Ellipse' },
-  { name: 'line', icon: Minus, label: 'Line' },
+const tools: { name: Tool; icon: React.ElementType; label: string; type: 'shape' | 'action' }[] = [
+  { name: 'select', icon: MousePointer2, label: 'Select', type: 'action' },
+  { name: 'rectangle', icon: Square, label: 'Rectangle', type: 'shape' },
+  { name: 'ellipse', icon: EllipseIcon, label: 'Ellipse', type: 'shape' },
+  { name: 'line', icon: Minus, label: 'Line', type: 'shape' },
+  { name: 'polyline', icon: Spline, label: 'Polyline', type: 'shape' },
+  { name: 'polygon', icon: Hexagon, label: 'Polygon', type: 'shape' },
+  { name: 'text', icon: TextIcon, label: 'Text', type: 'shape' },
+  { name: 'stamp', icon: StampIcon, label: 'Stamp', type: 'action' },
 ];
 
 export default function Toolbar({
@@ -73,8 +88,12 @@ export default function Toolbar({
   canUndo,
   onRedo,
   canRedo,
-  onExport,
-  onImport,
+  onExportJson,
+  onImportJson,
+  onSaveAsPng,
+  onGroup,
+  onUngroup,
+  selectedShapesCount,
 }: ToolbarProps) {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -84,7 +103,7 @@ export default function Toolbar({
   
   return (
     <TooltipProvider>
-      <header className="p-2 border-b border-border bg-card shadow-sm flex items-center space-x-2 h-16 shrink-0">
+      <header className="p-2 border-b border-border bg-card shadow-sm flex items-center space-x-1 h-16 shrink-0 overflow-x-auto">
         {tools.map((tool) => (
           <Tooltip key={tool.name}>
             <TooltipTrigger asChild>
@@ -103,7 +122,7 @@ export default function Toolbar({
           </Tooltip>
         ))}
 
-        <Separator orientation="vertical" className="h-8" />
+        <Separator orientation="vertical" className="h-8 mx-1" />
 
         <Popover>
           <Tooltip>
@@ -161,9 +180,9 @@ export default function Toolbar({
               <Input
                 type="number"
                 value={defaultStrokeWidth}
-                onChange={(e) => setDefaultStrokeWidth(Math.max(1, parseInt(e.target.value, 10)))}
+                onChange={(e) => setDefaultStrokeWidth(Math.max(0, parseInt(e.target.value, 10)))} // Allow 0 for no stroke
                 className="h-9 w-16 text-sm px-2"
-                min="1"
+                min="0"
                 aria-label="Stroke Width"
               />
             </div>
@@ -187,7 +206,7 @@ export default function Toolbar({
           </SelectContent>
         </Select>
 
-        <Separator orientation="vertical" className="h-8" />
+        <Separator orientation="vertical" className="h-8 mx-1" />
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -206,15 +225,34 @@ export default function Toolbar({
           <TooltipContent><p>Redo (Ctrl+Y)</p></TooltipContent>
         </Tooltip>
 
-        <Separator orientation="vertical" className="h-8" />
+        <Separator orientation="vertical" className="h-8 mx-1" />
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" onClick={onGroup} disabled={selectedShapesCount < 2} aria-label="Group">
+              <GroupIcon className="h-5 w-5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent><p>Group (Ctrl+G)</p></TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" onClick={onUngroup} disabled={selectedShapesCount !== 1 /* Needs a single group selected */} aria-label="Ungroup">
+              <UngroupIcon className="h-5 w-5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent><p>Ungroup (Ctrl+Shift+G)</p></TooltipContent>
+        </Tooltip>
+        
+        <Separator orientation="vertical" className="h-8 mx-1" />
         
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={onExport} aria-label="Export JSON">
+            <Button variant="ghost" size="icon" onClick={onExportJson} aria-label="Export JSON">
               <Download className="h-5 w-5" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent><p>Export JSON</p></TooltipContent>
+          <TooltipContent><p>Export Drawing (JSON)</p></TooltipContent>
         </Tooltip>
 
         <Tooltip>
@@ -223,24 +261,19 @@ export default function Toolbar({
               <Upload className="h-5 w-5" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent><p>Import JSON</p></TooltipContent>
+          <TooltipContent><p>Import Drawing (JSON)</p></TooltipContent>
         </Tooltip>
-        <Input type="file" ref={fileInputRef} onChange={onImport} accept=".json" className="hidden" />
-        
-        {/* Placeholder for future tools like Grouping, Zoom */}
-        {/* <Separator orientation="vertical" className="h-8" />
+        <Input type="file" ref={fileInputRef} onChange={onImportJson} accept=".json" className="hidden" />
+
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" disabled><ZoomIn className="h-5 w-5" /></Button>
+            <Button variant="ghost" size="icon" onClick={onSaveAsPng} aria-label="Save as PNG">
+              <ImageDown className="h-5 w-5" />
+            </Button>
           </TooltipTrigger>
-          <TooltipContent><p>Zoom In</p></TooltipContent>
+          <TooltipContent><p>Save as PNG</p></TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" disabled><ZoomOut className="h-5 w-5" /></Button>
-          </TooltipTrigger>
-          <TooltipContent><p>Zoom Out</p></TooltipContent>
-        </Tooltip> */}
+
       </header>
     </TooltipProvider>
   );
