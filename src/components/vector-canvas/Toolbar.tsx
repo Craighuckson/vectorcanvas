@@ -60,6 +60,7 @@ interface ToolbarProps {
   onGroup: () => void;
   onUngroup: () => void;
   selectedShapesCount: number;
+  isSingleGroupSelected: boolean; // New prop
   canvasWidth: number;
   setCanvasWidth: (width: number) => void;
   canvasHeight: number;
@@ -101,6 +102,7 @@ export default function Toolbar({
   onGroup,
   onUngroup,
   selectedShapesCount,
+  isSingleGroupSelected, // Use new prop
   canvasWidth,
   setCanvasWidth,
   canvasHeight,
@@ -121,13 +123,13 @@ export default function Toolbar({
   const handleSaveStampClick = () => {
     if (stampName.trim()) {
       onSaveStamp(stampName.trim());
-      setStampName(''); // Clear input after saving
+      setStampName(''); 
     }
   };
 
   const handleLoadStampClick = (templateId: string) => {
     onLoadStamp(templateId);
-    setStampPopoverOpen(false); // Close popover after loading
+    setStampPopoverOpen(false); 
   };
   
   return (
@@ -364,7 +366,7 @@ export default function Toolbar({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={onUngroup} disabled={selectedShapesCount !== 1} aria-label="Ungroup">
+            <Button variant="ghost" size="icon" onClick={onUngroup} disabled={!isSingleGroupSelected} aria-label="Ungroup">
               <UngroupIcon className="h-5 w-5" />
             </Button>
           </TooltipTrigger>
