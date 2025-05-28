@@ -4,7 +4,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { v4 as uuidv4 } from 'uuid';
-import { KonvaEventObject } from 'konva/lib/Node';
+import type { KonvaEventObject } from 'konva/lib/Node';
 import type { Stage } from 'konva/lib/Stage';
 
 import type { Shape, Tool, CanvasState, HistoryEntry, ShapeTool } from '@/lib/types';
@@ -41,6 +41,7 @@ const initialHistoryEntry: HistoryEntry = {
 };
 
 export default function VectorCanvasPage() {
+  const [isClient, setIsClient] = useState(false);
   const [shapes, setShapes] = useState<Shape[]>(initialShapes);
   const [selectedShapeIds, setSelectedShapeIds] = useState<string[]>(initialSelectedShapeIds);
   const [currentTool, setCurrentTool] = useState<Tool>(initialTool);
@@ -53,6 +54,10 @@ export default function VectorCanvasPage() {
   const { toast } = useToast();
 
   const { currentHistory, setHistory, undo, redo, canUndo, canRedo, resetHistory } = useCanvasHistory(initialHistoryEntry);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   useEffect(() => {
     if (currentHistory) {
@@ -82,12 +87,10 @@ export default function VectorCanvasPage() {
   };
 
   const handleUndo = () => {
-    // The useEffect listening to currentHistory will update the state
     undo();
   };
 
   const handleRedo = () => {
-    // The useEffect listening to currentHistory will update the state
     redo();
   };
 
@@ -119,8 +122,7 @@ export default function VectorCanvasPage() {
           const data = JSON.parse(content);
           if (data.shapes && Array.isArray(data.shapes)) {
             const newShapes = data.shapes as Shape[];
-            // Basic validation could be added here for each shape
-            resetHistory({ shapes: newShapes, selectedShapeIds: [] }); // This will trigger useEffect to update local state
+            resetHistory({ shapes: newShapes, selectedShapeIds: [] }); 
             if(stageRef.current && data.viewParams) {
               stageRef.current.x(data.viewParams.x || 0);
               stageRef.current.y(data.viewParams.y || 0);
@@ -138,7 +140,7 @@ export default function VectorCanvasPage() {
         }
       };
       reader.readAsText(file);
-      event.target.value = ''; // Reset file input
+      event.target.value = ''; 
     }
   };
   
@@ -150,6 +152,14 @@ export default function VectorCanvasPage() {
 
   const selectedShapesObjects = shapes.filter(shape => selectedShapeIds.includes(shape.id));
   
+  if (!isClient) {
+    return (
+      <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden items-center justify-center">
+        <p>Loading Editor...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
       <Toolbar
