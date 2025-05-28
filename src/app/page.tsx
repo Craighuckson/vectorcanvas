@@ -10,7 +10,6 @@ import type { Stage } from 'konva/lib/Stage';
 import type { Shape, Tool, CanvasState, HistoryEntry, ShapeTool } from '@/lib/types';
 import { useCanvasHistory } from '@/hooks/useCanvasHistory';
 import Toolbar from '@/components/vector-canvas/Toolbar';
-// import KonvaCanvas from '@/components/vector-canvas/KonvaCanvas'; // Original import
 import PropertiesPanel from '@/components/vector-canvas/PropertiesPanel';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -66,7 +65,7 @@ export default function VectorCanvasPage() {
     setShapes(newShapes);
     setSelectedShapeIds(newSelectedShapeIds);
     setHistory({ shapes: newShapes, selectedShapeIds: newSelectedShapeIds });
-  }, [setHistory, currentIndex]); // Added currentIndex to dependencies as setHistory uses it
+  }, [setHistory]);
 
   const handleAddShape = (shape: Shape) => {
     const newShapes = [...shapes, shape];
@@ -83,19 +82,13 @@ export default function VectorCanvasPage() {
   };
 
   const handleUndo = () => {
-    const prevState = undo();
-    if (prevState) {
-      // setShapes(prevState.shapes); // Managed by useEffect on currentHistory
-      // setSelectedShapeIds(prevState.selectedShapeIds); // Managed by useEffect on currentHistory
-    }
+    // The useEffect listening to currentHistory will update the state
+    undo();
   };
 
   const handleRedo = () => {
-    const nextState = redo();
-    if (nextState) {
-      // setShapes(nextState.shapes); // Managed by useEffect on currentHistory
-      // setSelectedShapeIds(nextState.selectedShapeIds); // Managed by useEffect on currentHistory
-    }
+    // The useEffect listening to currentHistory will update the state
+    redo();
   };
 
   const handleExport = () => {
@@ -157,11 +150,6 @@ export default function VectorCanvasPage() {
 
   const selectedShapesObjects = shapes.filter(shape => selectedShapeIds.includes(shape.id));
   
-  // Need to get currentIndex for the dependency array of updateStateAndHistory
-  // This is a bit of a workaround to access the currentIndex from the hook without exposing it.
-  const { currentIndex } = useCanvasHistory(initialHistoryEntry);
-
-
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
       <Toolbar
@@ -210,4 +198,3 @@ export default function VectorCanvasPage() {
     </div>
   );
 }
-
