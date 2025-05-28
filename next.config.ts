@@ -46,11 +46,9 @@ const nextConfig: NextConfig = {
         config.resolve.alias = {}; // Initialize if not an object
     }
     
-    // Assign React and React-DOM aliases. Using Object.assign to modify the existing alias object.
-    Object.assign(config.resolve.alias, {
-        react: path.resolve('./node_modules/react'),
-        'react-dom': path.resolve('./node_modules/react-dom'),
-    });
+    // Directly set React and React-DOM aliases.
+    config.resolve.alias['react'] = path.resolve('./node_modules/react');
+    config.resolve.alias['react-dom'] = path.resolve('./node_modules/react-dom');
     
     return config;
   },
